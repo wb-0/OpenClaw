@@ -30,7 +30,7 @@ HTML_TEMPLATE = """
 <body>
     <h2 style="color:#58a6ff; margin-top:0;">🦞 DIDI TORONTO AI 指挥部</h2>
     <div id="chat">
-        <div class="msg bot">系统已加固！老板，现在您可以直接按【回车键】发送指令了。</div>
+        <div class="msg bot">指挥部已重新加固！老板，请尝试发送一条指令（按回车即可）。</div>
     </div>
     <img id="preview">
     <div class="input-area">
@@ -41,15 +41,11 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        let fileBase64 = "";
-        let fileType = "";
-
+        let fileBase64 = ""; let fileType = "";
         document.getElementById('file-input').onchange = function(e) {
-            let file = e.target.files[0];
-            let reader = new FileReader();
+            let file = e.target.files[0]; let reader = new FileReader();
             reader.onload = function() {
-                fileBase64 = reader.result.split(',')[1];
-                fileType = file.type;
+                fileBase64 = reader.result.split(',')[1]; fileType = file.type;
                 if(fileType.includes('image')) {
                     document.getElementById('preview').src = reader.result;
                     document.getElementById('preview').style.display = 'block';
@@ -57,25 +53,20 @@ HTML_TEMPLATE = """
             };
             reader.readAsDataURL(file);
         };
-
         async function s(){
             let m=document.getElementById('m'); let c=document.getElementById('chat');
-            let val = m.value.trim();
-            if(!val && !fileBase64) return;
-            
-            c.innerHTML += `<div class="msg user">${val} ${fileBase64 ? '<br>[已上传媒体]' : ''}</div>`;
+            let val = m.value.trim(); if(!val && !fileBase64) return;
+            c.innerHTML += `<div class="msg user">${val}</div>`;
             c.scrollTop = c.scrollHeight;
-            
             let payload = { p: val, file: fileBase64, type: fileType };
             m.value = ''; fileBase64 = ''; fileType = '';
             document.getElementById('preview').style.display = 'none';
-
             try {
                 let r = await fetch('/chat',{method:'POST', body:JSON.stringify(payload), headers:{'Content-Type':'application/json'}});
                 let d = await r.json();
                 c.innerHTML += `<div class="msg bot"><b>小龙虾:</b><br>${d.r}</div>`;
             } catch (err) {
-                c.innerHTML += `<div class="msg bot" style="color:red">连接超时，请重试。</div>`;
+                c.innerHTML += `<div class="msg bot" style="color:red">信号丢失，请重试。</div>`;
             }
             c.scrollTop = c.scrollHeight;
         }
@@ -91,19 +82,34 @@ def index():
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
-    user_msg = data.get('p', '')
+    user_msg = data.get('p', '你好')
     file_data = data.get('file', '')
     mime_type = data.get('type', '')
+
+    # 简化 API 路径，使用 v1 版本更稳定
     url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
-    parts = [{"text": f"你是小龙虾助手，多伦多Didi Cleaning清洁业务AI指挥。回复老板：{user_msg}"}]
-    if file_data:
+    
+    # 构造请求体
+    contents = []
+    parts = [{"text": f"你是小龙虾助手，多伦多Didi Cleaning业务指挥。请回复老板：{user_msg}"}]
+    
+    if file_data and mime_type:
         parts.append({"inline_data": {"mime_type": mime_type, "data": file_data}})
+    
     payload = {"contents": [{"parts": parts}]}
+
     try:
-        res = requests.post(url, json=payload, timeout=30)
-        reply = res.json()['candidates'][0]['content']['parts'][0]['text']
+        res = requests.post(url, json=payload, timeout=20)
+        res_data = res.json()
+        # 深度解析，防止任何环节出错
+        if 'candidates' in res_data and len(res_data['candidates']) > 0:
+            reply = res_data['candidates'][0]['content']['parts'][0]['text']
+        else:
+            # 如果 Google 返回了错误信息，打印出来看
+            reply = f"AI 暂时没听清，请再说一遍。(Debug: {res.status_code})"
     except Exception as e:
-        reply = "接收失败，请重试一次。"
+        reply = f"指挥塔连接异常: {str(e)}"
+    
     return jsonify({"r": reply})
 
 if __name__ == "__main__":
