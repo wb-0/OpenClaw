@@ -1,32 +1,30 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import requests
+import os
 
 app = Flask(__name__)
 
-API_KEY = "把你的 Gemini API Key 贴这里"
+# 博伟老板的 Key
+API_KEY = "AIzaSyCuK_v86HfsQBGb_AqNmemREEm7s52t-Ho"
 
-def ask_ai(message):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
+@app.route('/')
+def index():
+    # 这样访问根目录就不会报 404 了
+    return "<h1>🦞 DIDI TORONTO - 指挥部已上线</h1><p>系统正常运行中，等待老板指令...</p>"
 
-    data = {
-        "contents": [{"parts": [{"text": message}]}]
-    }
-
-    res = requests.post(url, json=data)
-    result = res.json()
-
-    try:
-        return result['candidates'][0]['content']['parts'][0]['text']
-    except:
-        return "AI 出错"
-
-# 定义聊天接口
-@app.route('/chat', methods=['GET', 'POST'])
+@app.route('/chat', methods=['POST'])
 def chat():
-    # GET方式从url参数获取 message
-    message = request.args.get("message", "你好")
-    answer = ask_ai(message)
-    return answer
+    user_msg = request.json.get('p', '你好')
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    data = {"contents": [{"parts": [{"text": "你是小龙虾助手，多伦多Didi Cleaning清洁业务的AI。请回复：" + user_msg}]}]}
+    try:
+        res = requests.post(url, json=data, timeout=10)
+        reply = res.json()['candidates'][0]['content']['parts'][0]['text']
+        return jsonify({"r": reply})
+    except Exception as e:
+        return jsonify({"r": f"信号中断: {str(e)}"})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    # Cloud Run 的核心：必须读取 PORT 环境变量
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
