@@ -3,7 +3,7 @@ import requests
 
 app = Flask(__name__)
 
-API_KEY = "把你的API_KEY贴这里"
+API_KEY = "AIzaSyCuK_v86HfsQBGb_AqNmemREEm7s52t-Ho"
 
 def ask_ai():
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={API_KEY}"
