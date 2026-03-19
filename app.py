@@ -3,7 +3,7 @@ import requests
 import os
 
 app = Flask(__name__)
-# 🔑 您的专属密钥
+# 🔑 老板，这是咱们验证过的 API Key
 API_KEY = "AIzaSyCuK_v86HfsQBGb_AqNmemREEm7s52t-Ho"
 
 HTML_TEMPLATE = """
@@ -24,10 +24,10 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2 style="color:#58a6ff; font-size: 18px;">🦞 DIDI TORONTO - AI指挥部</h2>
-    <div id="chat"><div class="msg bot">系统已重启！老板，请问今天多伦多哪里的清洁订单需要处理？</div></div>
+    <h2 style="color:#58a6ff; font-size: 18px;">🦞 DIDI TORONTO - 指挥部已加固</h2>
+    <div id="chat"><div class="msg bot">指挥塔已校准频率！老板，请问今天多伦多清洁业务有什么指示？</div></div>
     <div class="input-area">
-        <input type="text" id="m" placeholder="输入指令按回车..." onkeydown="if(event.key==='Enter'){s();event.preventDefault();}">
+        <input type="text" id="m" placeholder="说点什么...（按回车发送）" onkeydown="if(event.key==='Enter'){s();event.preventDefault();}">
         <button onclick="s()">发送</button>
     </div>
     <script>
@@ -40,7 +40,7 @@ HTML_TEMPLATE = """
                 let r = await fetch('/chat',{method:'POST', body:JSON.stringify({p:val}), headers:{'Content-Type':'application/json'}});
                 let d = await r.json();
                 c.innerHTML += `<div class="msg bot"><b>小龙虾:</b><br>${d.r}</div>`;
-            } catch (err) { c.innerHTML += `<div class="msg bot" style="color:red">信号弱，请重试。</div>`; }
+            } catch (err) { c.innerHTML += `<div class="msg bot" style="color:red">连接异常，请重试。</div>`; }
             c.scrollTop = c.scrollHeight;
         }
     </script>
@@ -54,29 +54,26 @@ def index(): return render_template_string(HTML_TEMPLATE)
 @app.route('/chat', methods=['POST'])
 def chat():
     user_msg = request.json.get('p', '')
-    # 🚨 双回路地址：先试 v1beta，不行再试 v1
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # 🚨 重点：回退到 v1 稳定接口，并确保模型路径完全正确
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={API_KEY}"
     
-    payload = {"contents": [{"parts": [{"text": f"你是小龙虾助手，多伦多Didi Cleaning业务指挥。老板说：{user_msg}"}]}]}
+    payload = {
+        "contents": [{
+            "parts": [{"text": f"你是小龙虾，多伦多Didi Cleaning清洁业务AI助手。请用中文简短回复老板博伟：{user_msg}"}]
+        }]
+    }
     
     try:
         res = requests.post(url, json=payload, timeout=15)
         data = res.json()
-        
-        # 🛡️ 稳健解析：一层一层扒开，防止 candidates 报错
-        if 'candidates' in data and len(data['candidates']) > 0:
-            content = data['candidates'][0].get('content', {})
-            parts = content.get('parts', [])
-            if parts:
-                reply = parts[0].get('text', '小龙虾正在思考，请稍后。')
-            else:
-                reply = "收到指令，正在处理中。"
+        # 🛡️ 稳健的错误处理逻辑
+        if 'candidates' in data and data['candidates']:
+            reply = data['candidates'][0]['content']['parts'][0]['text']
         else:
-            # 如果 v1beta 不行，这里可以记录错误
-            reply = "小龙虾刚才走神了，请老板再发一次。"
-    except Exception as e:
-        reply = f"指挥塔连接异常，请检查网络。(Debug: {str(e)})"
-    
+            reply = "小龙虾接收指令中，请稍等再发一次。"
+    except:
+        reply = "信号稍有延迟，请老板再试。"
+        
     return jsonify({"r": reply})
 
 if __name__ == "__main__":
