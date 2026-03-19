@@ -3,7 +3,7 @@ import requests
 import os
 
 app = Flask(__name__)
-# 🔑 老板，这是咱们验证过的 API Key
+# 🔑 老板，这是咱们指挥部的核心密钥
 API_KEY = "AIzaSyCuK_v86HfsQBGb_AqNmemREEm7s52t-Ho"
 
 HTML_TEMPLATE = """
@@ -24,10 +24,10 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2 style="color:#58a6ff; font-size: 18px;">🦞 DIDI TORONTO - 指挥部已加固</h2>
-    <div id="chat"><div class="msg bot">指挥塔已校准频率！老板，请问今天多伦多清洁业务有什么指示？</div></div>
+    <h2 style="color:#58a6ff; font-size: 18px;">🦞 DIDI TORONTO - 终极指挥部</h2>
+    <div id="chat"><div class="msg bot">指挥部已强制重置！老板，请按回车发送“你好”测试。</div></div>
     <div class="input-area">
-        <input type="text" id="m" placeholder="说点什么...（按回车发送）" onkeydown="if(event.key==='Enter'){s();event.preventDefault();}">
+        <input type="text" id="m" placeholder="输入指令..." onkeydown="if(event.key==='Enter'){s();event.preventDefault();}">
         <button onclick="s()">发送</button>
     </div>
     <script>
@@ -40,7 +40,7 @@ HTML_TEMPLATE = """
                 let r = await fetch('/chat',{method:'POST', body:JSON.stringify({p:val}), headers:{'Content-Type':'application/json'}});
                 let d = await r.json();
                 c.innerHTML += `<div class="msg bot"><b>小龙虾:</b><br>${d.r}</div>`;
-            } catch (err) { c.innerHTML += `<div class="msg bot" style="color:red">连接异常，请重试。</div>`; }
+            } catch (err) { c.innerHTML += `<div class="msg bot" style="color:red">连接失败，请检查网络。</div>`; }
             c.scrollTop = c.scrollHeight;
         }
     </script>
@@ -54,25 +54,24 @@ def index(): return render_template_string(HTML_TEMPLATE)
 @app.route('/chat', methods=['POST'])
 def chat():
     user_msg = request.json.get('p', '')
-    # 🚨 重点：回退到 v1 稳定接口，并确保模型路径完全正确
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={API_KEY}"
+    # 🚨 换成全球最稳的 v1 接口和 gemini-1.5-flash 模型
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
     
-    payload = {
-        "contents": [{
-            "parts": [{"text": f"你是小龙虾，多伦多Didi Cleaning清洁业务AI助手。请用中文简短回复老板博伟：{user_msg}"}]
-        }]
-    }
+    payload = {"contents": [{"parts": [{"text": f"你是小龙虾，多伦多Didi Cleaning清洁业务助手。请回复老板：{user_msg}"}]}]}
     
     try:
         res = requests.post(url, json=payload, timeout=15)
         data = res.json()
-        # 🛡️ 稳健的错误处理逻辑
-        if 'candidates' in data and data['candidates']:
+        
+        if 'candidates' in data:
             reply = data['candidates'][0]['content']['parts'][0]['text']
+        elif 'error' in data:
+            # 🛡️ 报错诊断：如果是 API 问题，直接告诉老板原因
+            reply = f"【系统提示】Google AI 说：{data['error'].get('message', '未知错误')}"
         else:
-            reply = "小龙虾接收指令中，请稍等再发一次。"
-    except:
-        reply = "信号稍有延迟，请老板再试。"
+            reply = "小龙虾没听清，请老板再试一次。"
+    except Exception as e:
+        reply = f"【系统提示】网络连接异常：{str(e)}"
         
     return jsonify({"r": reply})
 
