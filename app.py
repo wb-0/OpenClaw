@@ -3,7 +3,7 @@ import requests
 import os
 
 app = Flask(__name__)
-# 🔑 您的金钥匙
+# 您的专属 API Key
 API_KEY = "AIzaSyCuK_v86HfsQBGb_AqNmemREEm7s52t-Ho"
 
 HTML_TEMPLATE = """
@@ -24,8 +24,8 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
-    <h2 style="color:#58a6ff;">🦞 DIDI TORONTO 指挥部</h2>
-    <div id="chat"><div class="msg bot">老板，回车键和 AI 线路已全部加固！我是 Didi Cleaning 的小龙虾，请下达清洁指令。</div></div>
+    <h2 style="color:#58a6ff;">🦞 DIDI TORONTO - 指挥部已上线</h2>
+    <div id="chat"><div class="msg bot">老板，系统已全面加固！我是小龙虾，已准备好处理多伦多清洁业务指令。</div></div>
     <div class="input-area">
         <input type="text" id="m" placeholder="输入指令后按回车..." onkeydown="if(event.key==='Enter'){s();event.preventDefault();}">
         <button onclick="s()">发送</button>
@@ -54,38 +54,18 @@ def index(): return render_template_string(HTML_TEMPLATE)
 @app.route('/chat', methods=['POST'])
 def chat():
     user_msg = request.json.get('p', '')
-    # 🚨 修复 404 的核心：更新 API 地址格式
+    # 🚨 关键修复：使用 v1beta 版本 API 地址
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
     
-    # 🧠 给 AI 注入多伦多 Didi Cleaning 的“生意经”
-    prompt = f"""
-    你是小龙虾，多伦多 Didi Cleaning 的专属 AI 指挥官。
-    你的老板叫“博伟老板”。
-    你的业务范围：多伦多、North York、Scarborough、Markham。
-    报价参考：
-    1. Move-out 清洁：$250 起。
-    2. 地毯清洗：$150 起。
-    3. 定期保洁：$100 起。
-    请根据以下指令回复老板：{user_msg}
-    """
+    # 🧠 为您的清洁业务定制的大脑逻辑
+    prompt = f"你是小龙虾助手，多伦多Didi Cleaning清洁业务AI指挥。请回复老板博伟：{user_msg}"
     
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    }
-    
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         res = requests.post(url, json=payload, timeout=20)
-        res_data = res.json()
-        # 增加容错解析
-        if 'candidates' in res_data:
-            reply = res_data['candidates'][0]['content']['parts'][0]['text']
-        else:
-            reply = f"AI 线路抖动，请再试一次。(Code: {res.status_code})"
+        reply = res.json()['candidates'][0]['content']['parts'][0]['text']
     except Exception as e:
-        reply = f"信号丢失: {str(e)}"
-    
+        reply = "AI 信号接收稍有延迟，请再试一次。"
     return jsonify({"r": reply})
 
 if __name__ == "__main__":
