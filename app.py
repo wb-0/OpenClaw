@@ -4,61 +4,67 @@ import os
 
 app = Flask(__name__)
 
-# 🚨 优化：优先从环境变量读取 API_KEY，如果没设置再使用默认值
-# 运行前可以在终端输入: export GEMINI_API_KEY="你的真实密钥"
-API_KEY = os.environ.get("GEMINI_API_KEY", "在这里粘贴新密钥")
+# 🛡️ 安全配置：优先读取系统环境变量中的密钥
+API_KEY = os.environ.get("GEMINI_API_KEY", "在这里粘贴你的密钥(如果不设置环境变量)")
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DIDI TORONTO - 3.1 PRO 指挥部</title>
+    <title>DIDI TORONTO - 小龙虾指挥部</title>
     <style>
-        body { background: #0d1117; color: #c9d1d9; font-family: sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 95vh; box-sizing: border-box;}
-        #chat { flex: 1; overflow-y: auto; border: 1px solid #30363d; padding: 15px; border-radius: 6px; background: #161b22; margin-bottom: 20px; line-height: 1.5; }
-        .msg { margin-bottom: 12px; padding: 10px; border-radius: 8px; max-width: 85%; word-wrap: break-word; }
-        .user { background: #1f6feb; margin-left: auto; text-align: right; }
-        .bot { background: #21262d; border: 1px solid #30363d; color: #ffa500; }
-        .input-area { display: flex; gap: 10px; }
-        input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 6px; outline: none; }
-        input:focus { border-color: #58a6ff; }
-        button { background: #2ea44f; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #2c974b; }
+        body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box;}
+        #chat { flex: 1; overflow-y: auto; border: 1px solid #30363d; padding: 15px; border-radius: 8px; background: #161b22; margin-bottom: 20px; }
+        .msg { margin-bottom: 15px; padding: 12px; border-radius: 10px; max-width: 85%; line-height: 1.6; word-wrap: break-word; }
+        .user { background: #1f6feb; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
+        .bot { background: #21262d; border: 1px solid #30363d; color: #ffa500; border-bottom-left-radius: 2px; }
+        .input-area { display: flex; gap: 10px; padding-bottom: 10px; }
+        input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 14px; border-radius: 6px; outline: none; font-size: 16px; }
+        input:focus { border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88,166,255,0.3); }
+        button { background: #2ea44f; color: white; border: none; padding: 0 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #2c974b; transform: translateY(-1px); }
+        b { color: #58a6ff; }
     </style>
 </head>
 <body>
-    <h2 style="color:#58a6ff; margin-top: 0;">🦞 DIDI TORONTO - Gemini 3.1 Pro 指挥部</h2>
-    <div id="chat"><div class="msg bot">老板好，系统已升级至 3.1 Pro 顶配大脑！多伦多 Didi Cleaning 小龙虾指挥官待命，请下达清洁业务指令。</div></div>
+    <h2 style="color:#58a6ff; margin: 0 0 15px 0; display: flex; align-items: center; gap: 10px;">
+        🦞 DIDI TORONTO - 指挥中心
+    </h2>
+    <div id="chat">
+        <div class="msg bot">老板好！我是多伦多 Didi Cleaning 小龙虾指挥官。系统已就绪，请下达清洁调度指令。</div>
+    </div>
     <div class="input-area">
-        <input type="text" id="m" placeholder="输入指令后按回车..." onkeydown="if(event.key==='Enter')s();" autocomplete="off">
-        <button onclick="s()">发送指令</button>
+        <input type="text" id="m" placeholder="输入指令..." onkeydown="if(event.key==='Enter')s();" autocomplete="off">
+        <button onclick="s()">发送</button>
     </div>
     <script>
-        // 将换行符转为 <br> 以便在 HTML 中正确显示格式
         function formatText(text) {
-            return text.replace(/\\n/g, '<br>');
+            return text.replace(/\\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
         }
 
         async function s(){
             let m=document.getElementById('m'); let c=document.getElementById('chat');
             let val = m.value.trim(); if(!val) return;
+            
             c.innerHTML += `<div class="msg user">${val}</div>`;
             m.value = '';
             
-            // 添加一个 "正在输入" 的提示
-            let loadingId = "loading-" + Date.now();
-            c.innerHTML += `<div id="${loadingId}" class="msg bot" style="color:#8b949e;">小龙虾接收信号中...</div>`;
+            let loadingId = "load-" + Date.now();
+            c.innerHTML += `<div id="${loadingId}" class="msg bot" style="opacity: 0.6;">⚡ 正在联系多伦多总部...</div>`;
             c.scrollTop = c.scrollHeight;
 
             try {
-                let r = await fetch('/chat',{method:'POST', body:JSON.stringify({p:val}), headers:{'Content-Type':'application/json'}});
+                let r = await fetch('/chat',{
+                    method:'POST', 
+                    body:JSON.stringify({p:val}), 
+                    headers:{'Content-Type':'application/json'}
+                });
                 let d = await r.json();
-                document.getElementById(loadingId).remove(); // 移除加载提示
-                c.innerHTML += `<div class="msg bot"><b>小龙虾指挥官:</b><br>${formatText(d.r)}</div>`;
-            } catch (err) { 
                 document.getElementById(loadingId).remove();
-                c.innerHTML += `<div class="msg bot" style="color:#ff7b72">多伦多遭遇暴风雪，连接异常，请重试。</div>`; 
+                c.innerHTML += `<div class="msg bot"><b>指挥官回复：</b><br>${formatText(d.r)}</div>`;
+            } catch (err) { 
+                document.getElementById(loadingId).innerText = "❌ 信号受干扰，请检查 API KEY 或网络。"; 
             }
             c.scrollTop = c.scrollHeight;
         }
@@ -74,28 +80,20 @@ def index():
 @app.route('/chat', methods=['POST'])
 def chat():
     user_msg = request.json.get('p', '')
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key={API_KEY}"
+    # 使用 1.5-flash 或 1.5-pro 保证稳定性
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
     
-    # 🚨 核心修改：使用原生的 system_instruction 注入角色设定，效果比直接放在对话里好得多
     payload = {
         "system_instruction": {
-            "parts":[{"text": "你是小龙虾指挥官，负责加拿大城市多伦多(Toronto)的 Didi Cleaning 清洁业务。请听从老板的指示，回复要求专业、高效，可以适当带入干练的指挥官语气。"}]
+            "parts":[{"text": "你是小龙虾指挥官，负责加拿大城市多伦多(Toronto)的 Didi Cleaning 清洁业务。你对老板非常忠诚且专业。你的回复要高效、干练，语气中带着指挥官的威严与细致。"}]
         },
         "contents": [{"parts": [{"text": user_msg}]}]
     }
     
     try:
-        res = requests.post(url, json=payload, timeout=20)
+        res = requests.post(url, json=payload, timeout=30)
         data = res.json()
         if 'candidates' in data:
             reply = data['candidates'][0]['content']['parts'][0]['text']
         else:
-            reply = f"系统反馈：{data.get('error', {}).get('message', '大脑连接中，请稍后并检查API KEY')}"
-    except Exception as e:
-        reply = f"多伦多信号延迟，请老板再试。(系统错误: {str(e)})"
-        
-    return jsonify({"r": reply})
-
-if __name__ == "__main__":
-    # debug=True 可以让您在修改代码后自动重启服务
-    app.run(host="0.0.0.0", port=8080, debug=True)
+            error_msg = data.get('error', {}).get
