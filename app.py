@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 
 # 🚨 老板，请在这里粘贴您在 AI Studio 领到的最新 API KEY
-API_KEY = "在这里粘贴新密钥"
+API_KEY = "AIzaSyDCKySgusqHlvUbB0fRwvBKFUHH6CXa1mg"
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
