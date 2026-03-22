@@ -1,99 +1,106 @@
-from flask import Flask, request, jsonify, render_template_string
-import requests
-import os
+# 小龙虾 15.1 - 核心执行引擎 (app.py)
 
+import os
+import random
+from flask import Flask, request, jsonify
+from supabase import create_client, Client
+import openai
+
+# --- 初始化 ---
 app = Flask(__name__)
 
-# 🛡️ 安全配置：优先读取系统环境变量中的密钥
-API_KEY = os.environ.get("GEMINI_API_KEY", "在这里粘贴你的密钥(如果不设置环境变量)")
+# 从 GitHub Secrets (环境变量) 加载密钥
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY") # 注意这里用 anon key
+OPENAI_API_KEY_POOL_STR = os.environ.get("OPENAI_API_KEY_POOL")
 
-HTML_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DIDI TORONTO - 小龙虾指挥部</title>
-    <style>
-        body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box;}
-        #chat { flex: 1; overflow-y: auto; border: 1px solid #30363d; padding: 15px; border-radius: 8px; background: #161b22; margin-bottom: 20px; }
-        .msg { margin-bottom: 15px; padding: 12px; border-radius: 10px; max-width: 85%; line-height: 1.6; word-wrap: break-word; }
-        .user { background: #1f6feb; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
-        .bot { background: #21262d; border: 1px solid #30363d; color: #ffa500; border-bottom-left-radius: 2px; }
-        .input-area { display: flex; gap: 10px; padding-bottom: 10px; }
-        input { flex: 1; background: #0d1117; border: 1px solid #30363d; color: white; padding: 14px; border-radius: 6px; outline: none; font-size: 16px; }
-        input:focus { border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88,166,255,0.3); }
-        button { background: #2ea44f; color: white; border: none; padding: 0 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        button:hover { background: #2c974b; transform: translateY(-1px); }
-        b { color: #58a6ff; }
-    </style>
-</head>
-<body>
-    <h2 style="color:#58a6ff; margin: 0 0 15px 0; display: flex; align-items: center; gap: 10px;">
-        🦞 DIDI TORONTO - 指挥中心
-    </h2>
-    <div id="chat">
-        <div class="msg bot">老板好！我是多伦多 Didi Cleaning 小龙虾指挥官。系统已就绪，请下达清洁调度指令。</div>
-    </div>
-    <div class="input-area">
-        <input type="text" id="m" placeholder="输入指令..." onkeydown="if(event.key==='Enter')s();" autocomplete="off">
-        <button onclick="s()">发送</button>
-    </div>
-    <script>
-        function formatText(text) {
-            return text.replace(/\\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-        }
+# --- 检查密钥是否存在 ---
+if not all([SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY_POOL_STR]):
+    print("❌ 错误：核心密钥环境变量未完全设置！")
+    # 这里可以在未来增加更详细的错误处理
 
-        async function s(){
-            let m=document.getElementById('m'); let c=document.getElementById('chat');
-            let val = m.value.trim(); if(!val) return;
-            
-            c.innerHTML += `<div class="msg user">${val}</div>`;
-            m.value = '';
-            
-            let loadingId = "load-" + Date.now();
-            c.innerHTML += `<div id="${loadingId}" class="msg bot" style="opacity: 0.6;">⚡ 正在联系多伦多总部...</div>`;
-            c.scrollTop = c.scrollHeight;
+# 创建 Supabase 客户端
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-            try {
-                let r = await fetch('/chat',{
-                    method:'POST', 
-                    body:JSON.stringify({p:val}), 
-                    headers:{'Content-Type':'application/json'}
-                });
-                let d = await r.json();
-                document.getElementById(loadingId).remove();
-                c.innerHTML += `<div class="msg bot"><b>指挥官回复：</b><br>${formatText(d.r)}</div>`;
-            } catch (err) { 
-                document.getElementById(loadingId).innerText = "❌ 信号受干扰，请检查 API KEY 或网络。"; 
-            }
-            c.scrollTop = c.scrollHeight;
-        }
-    </script>
-</body>
-</html>
-"""
+# --- 核心功能模块 ---
 
-@app.route('/')
-def index(): 
-    return render_template_string(HTML_TEMPLATE)
-
-@app.route('/chat', methods=['POST'])
-def chat():
-    user_msg = request.json.get('p', '')
-    # 使用 1.5-flash 或 1.5-pro 保证稳定性
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
-    
-    payload = {
-        "system_instruction": {
-            "parts":[{"text": "你是小龙虾指挥官，负责加拿大城市多伦多(Toronto)的 Didi Cleaning 清洁业务。你对老板非常忠诚且专业。你的回复要高效、干练，语气中带着指挥官的威严与细致。"}]
-        },
-        "contents": [{"parts": [{"text": user_msg}]}]
-    }
-    
+def auto_feed_memory(data: str, source: str):
+    """核心逻辑：将成功的结果向量化存入 Supabase"""
     try:
-        res = requests.post(url, json=payload, timeout=30)
-        data = res.json()
-        if 'candidates' in data:
-            reply = data['candidates'][0]['content']['parts'][0]['text']
+        supabase.table('claw15_memory').insert({"content": data, "metadata": {"source": source}}).execute()
+        return "✅ 记忆已喂料，系统进化中..."
+    except Exception as e:
+        error_message = f"❌ 记忆喂料失败: {e}"
+        print(error_message)
+        return error_message
+
+def execute_lotto_max_analysis(task_description: str):
+    """执行 Lotto Max 分析任务"""
+    # 随机选择一个 OpenAI API Key
+    api_keys = OPENAI_API_KEY_POOL_STR.split(',')
+    selected_key = random.choice(api_keys).strip()
+    
+    client = openai.OpenAI(api_key=selected_key)
+
+    # 实际的分析逻辑会更复杂，这里用一个 AI 调用作为示例
+    response = client.chat.completions.create(
+      model="gpt-4o", # 可以换成更强大的模型
+      messages=[
+        {"role": "system", "content": "你是一个顶级的彩票数据分析师，专门分析 Lotto Max。"},
+        {"role": "user", "content": f"基于历史数据和当前趋势，请分析下一个 Lotto Max 的号码。任务描述: {task_description}"}
+      ]
+    )
+    result = response.choices[0].message.content
+    
+    # 任务成功后，将结果喂给记忆库
+    feedback = auto_feed_memory(data=result, source="gpt-4o_analysis")
+    
+    return f"【Lotto Max 分析报告】\n{result}\n\n---\n{feedback}"
+
+
+def execute_cleaning_lead_task(task_description: str):
+    """执行清洁生意潜客挖掘任务"""
+    # 伪代码：实际会在这里执行网络抓取
+    result = "发现新的高价值清洁订单：多伦多市中心 ABC 公司，5000平米办公室开荒保洁。联系人：John Doe。"
+    
+    feedback = auto_feed_memory(data=result, source="web_scraper")
+    
+    return f"【清洁生意情报】\n{result}\n\n---\n{feedback}"
+
+
+# --- API 入口 ---
+# 这是给 Dify 或其他大脑中枢调用的接口
+@app.route('/execute_task', methods=['POST'])
+def handle_task():
+    data = request.json
+    task_description = data.get('task_description', '').lower()
+    
+    if not task_description:
+        return jsonify({"error": "缺少任务描述 (task_description)"}), 400
+
+    try:
+        # 根据任务描述，自动分配给不同的执行模块
+        if "lotto max" in task_description:
+            result = execute_lotto_max_analysis(task_description)
+        elif "cleaning" in task_description or "保洁" in task_description:
+            result = execute_cleaning_lead_task(task_description)
         else:
-            error_msg = data.get('error', {}).get
+            result = "未知任务类型，无法执行。"
+            
+        return jsonify({"status": "success", "result": result})
+
+    except Exception as e:
+        error_msg = f"任务执行失败: {str(e)}"
+        print(f"❌ {error_msg}")
+        # 未来可以在这里触发自愈进化逻辑
+        return jsonify({"status": "error", "message": error_msg}), 500
+
+# 心跳检测接口，确保服务在线
+@app.route('/', methods=['GET'])
+def health_check():
+    return "小龙虾 15.1 执行引擎在线，待命中。"
+
+if __name__ == '__main__':
+    # 使用 0.0.0.0 使服务在网络上可见
+    # 端口可以根据部署平台的要求更改
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
