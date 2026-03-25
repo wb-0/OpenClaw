@@ -1,11 +1,11 @@
-# 小龙虾 15.1 - 核心执行引擎 (app.py) - 【Google Gemini 动力版】
+# 小龙虾 15.1 - 核心执行引擎 (app.py) - 【Google Gemini 动力版 · 终极版】
 
 import os
 from flask import Flask, request, jsonify
 from supabase import create_client, Client
 import google.generativeai as genai
 
-# --- 初始化 ---
+# --- 1. 开机自检：初始化与连接 ---
 app = Flask(__name__)
 
 # --- 从 Render 的环境变量中加载密钥 ---
@@ -25,10 +25,12 @@ if not all([SUPABASE_URL, SUPABASE_KEY]):
     print("❌ 错误：Supabase 密钥未完全设置！")
 else:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    print("✅ Supabase 记忆数据库已连接。")
+    print("✅ Supabase 记忆图书馆已连接。")
 
-# --- 核心功能模块 ---
 
+# --- 2. 核心能力：我的专长 ---
+
+# 专长一：学习与记忆
 def auto_feed_memory(data: str, source: str):
     """核心逻辑：将成功的结果存入 Supabase"""
     try:
@@ -39,17 +41,17 @@ def auto_feed_memory(data: str, source: str):
         print(error_message)
         return error_message
 
+# 专长二：Lotto Max 分析
 def execute_lotto_max_analysis(task_description: str):
     """执行 Lotto Max 分析任务 (由 Gemini 驱动)"""
     try:
-        # 选择一个快速且免费的模型
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
         prompt = f"你是一个顶级的彩票数据分析师，专门分析 Lotto Max。基于历史数据和当前趋势，请分析下一个 Lotto Max 的号码。任务描述: {task_description}"
         
         response = model.generate_content(prompt)
         result = response.text
         
-        # 任务成功后，将结果喂给记忆库
+        # 任务成功后，调用“学习”专长
         feedback = auto_feed_memory(data=result, source="gemini-1.5-flash")
         
         return f"【Lotto Max 分析报告 (Gemini 版)】\n{result}\n\n---\n{feedback}"
@@ -58,23 +60,30 @@ def execute_lotto_max_analysis(task_description: str):
         print(error_message)
         return error_message
 
-
+# 专长三：清洁生意情报
 def execute_cleaning_lead_task(task_description: str):
     """执行清洁生意潜客挖掘任务"""
+    # 此处为未来扩展保留，目前返回一个示例结果
     result = "发现新的高价值清洁订单：多伦多市中心 ABC 公司，5000平米办公室开荒保洁。联系人：Jane Doe。"
+    
+    # 任务成功后，调用“学习”专长
     feedback = auto_feed_memory(data=result, source="web_scraper_mock")
+    
     return f"【清洁生意情报】\n{result}\n\n---\n{feedback}"
 
 
-# --- API 入口 ---
+# --- 3. 通讯接口：我的耳朵和嘴巴 ---
+
 @app.route('/execute_task', methods=['POST'])
 def handle_task():
+    """这是我接收任务的唯一地址"""
     data = request.json
     task_description = data.get('task_description', '').lower()
     
     if not task_description:
         return jsonify({"error": "缺少任务描述 (task_description)"}), 400
 
+    # 根据任务描述，自动分配给不同的专长
     if "lotto max" in task_description:
         result = execute_lotto_max_analysis(task_description)
     elif "cleaning" in task_description or "保洁" in task_description:
@@ -86,6 +95,7 @@ def handle_task():
 
 @app.route('/', methods=['GET'])
 def health_check():
+    """这是我的心跳，证明我还活着"""
     return "小龙虾 15.1 执行引擎在线 (Google Gemini 动力版)，待命中。"
 
 if __name__ == '__main__':
