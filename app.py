@@ -1,15 +1,17 @@
-# 小龙虾 15.1 - 核心执行引擎 (app.py) - 【赛博投行 & 网页指挥中心版】
+# 小龙虾 15.2 - 核心执行引擎 (app.py) - 【赛博游资·实时全自动盯盘版】
 
 import os
+import time
+import threading
 import yfinance as yf
 from flask import Flask, request, jsonify, render_template_string
 from supabase import create_client, Client
 import google.generativeai as genai
+from datetime import datetime
 
 # --- 1. 初始化系统 ---
 app = Flask(__name__)
 
-# --- 2. 加载云端密钥 ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -19,196 +21,245 @@ if GEMINI_API_KEY:
 if all([SUPABASE_URL, SUPABASE_KEY]):
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 3. 核心记忆协议 ---
-def auto_feed_memory(data: str, source: str):
+# --- 2. 内存缓存 (用于存放实时警报) ---
+# 保留最近的 15 条雷达警报
+RADAR_LOGS = [{"time": datetime.now().strftime("%H:%M:%S"), "msg": "系统启动，赛博游资雷达预热中...", "type": "info"}]
+IS_RADAR_ON = False # 雷达总开关
+# 盯盘股票池 (可以随时扩充，这里精选三大市场代表)
+WATCH_LIST = {
+    "A股_茅台": "600519.SS", 
+    "A股_东方财富": "300059.SZ", # 券商情绪龙头
+    "美股_英伟达": "NVDA",
+    "美股_特斯拉": "TSLA",
+    "港股_腾讯": "0700.HK"
+}
+
+def add_log(msg, log_type="info"):
+    time_str = datetime.now().strftime("%H:%M:%S")
+    RADAR_LOGS.insert(0, {"time": time_str, "msg": msg, "type": log_type})
+    if len(RADAR_LOGS) > 15:
+        RADAR_LOGS.pop()
+
+# --- 3. 核心功能：全自动游资异动嗅探器 ---
+def analyze_anomaly_with_ai(ticker, market_name, anomaly_desc, recent_data):
+    """当发生异动时，AI 自动介入进行游资战法推演"""
     try:
-        supabase.table('claw15_memory').insert({"content": data, "metadata": {"source": source}}).execute()
-        return "✅ 记忆已喂料入库，等待100次考核后转正..."
-    except Exception as e:
-        return f"❌ 记忆喂料失败: {str(e)}"
-
-# --- 4. 🚀 新增：全球投资专家 (沙箱考核版) ---
-def execute_global_investment_simulation(market: str, ticker: str):
-    """
-    沙箱环境下的量化回测考核。
-    强制注入各市场法规与交易规则。
-    """
-    try:
-        # 1. 抓取真实市场数据 (最近5天)
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="5d")
-        if hist.empty:
-            return f"❌ 无法获取代码 {ticker} 的市场数据，请检查代码是否正确。"
-        
-        recent_data = hist[['Open', 'High', 'Low', 'Close', 'Volume']].to_string()
-
-        # 2. 注入市场合规与规则逻辑
-        market_rules = ""
-        if market == "A股":
-            market_rules = "【A股强制规则】：实行 T+1 交收制度（当日买入次日方可卖出）；普通股票有 10% 涨跌幅限制（科创/创业板 20%）；以人民币(CNY)计价；受中国证监会及宏观政策高度影响。严禁预测内幕交易。"
-        elif market == "美股":
-            market_rules = "【美股强制规则】：实行 T+0 交易制度；无涨跌幅限制；以美元(USD)计价；受美联储利率及 SEC 财报披露直接驱动；账户资金低于2.5万美元受 PDT(典型日内交易者) 规则限制。严禁任何操纵市场的建议。"
-        elif market == "港股":
-            market_rules = "【港股强制规则】：实行 T+0 交易，T+2 结算制度；无涨跌幅限制；以港币(HKD)计价，联系汇率挂钩美元；受外资流动性及内地政策双重影响。"
-
-        # 3. 召唤 Gemini 专家进行模拟考核
-        model = genai.GenerativeModel('gemini-1.5-pro-latest') # 投资需更强的推理模型
+        model = genai.GenerativeModel('gemini-1.5-flash-latest') # 盯盘要快，用 flash
         prompt = f"""
-        你现在是【小龙虾 15.1 内阁】的首席全球量化对冲基金经理，目前处于“沙箱模拟考核期”。
-        你的终极目标是：在合法合规的前提下，实现利益最大化。
+        你现在是 A股/美股 顶级短线游资操盘手。
+        标的：{market_name} ({ticker}) 刚刚触发了实时雷达警报！
+        警报原因：【{anomaly_desc}】
         
-        当前考核标的：{market} 市场，股票代码：{ticker}
-        {market_rules}
-        
-        以下是该标的最近5个交易日的真实量价数据：
+        以下是最近的分钟级量价切片数据：
         {recent_data}
         
-        请你以极其专业、冷酷的华尔街量化机构视角，输出一份【模拟考核交易指令】。
-        必须包含以下结构：
-        1. 趋势研判 (结合量价)
-        2. 合规风险提示 (结合该市场特有法规)
-        3. 模拟决策 (买入/卖出/观望) 及具体止盈止损点位位。
+        请用极度精炼、冷酷的游资视角（字数控制在150字以内），立刻判断：
+        这是主升浪启动/洗盘/还是诱多出货？是否建议打板/追入？止损位设在哪里？
         """
-        
         response = model.generate_content(prompt)
-        result = response.text
+        ai_advice = response.text.replace('\n', ' ') # 压缩成一段
         
-        # 4. 考核记录存入 Supabase 记忆库，用于未来复盘胜率
-        feedback = auto_feed_memory(data=f"标的:{ticker}\n{result}", source=f"quant_sandbox_{market}")
+        # 记录到记忆库备查
+        if supabase:
+            supabase.table('claw15_memory').insert({"content": f"标的:{ticker}\n异动:{anomaly_desc}\n研判:{ai_advice}", "metadata": {"source": "auto_radar"}}).execute()
         
-        return f"【📈 赛博投行：{market} 沙箱模拟考核报告】\n标的代码: {ticker}\n\n{result}\n\n=========================\n[系统状态]: {feedback}"
-    
+        add_log(f"🧠 [AI研判 - {market_name}]：{ai_advice}", "ai")
     except Exception as e:
-        return f"❌ 投资模型运转异常: {str(e)}"
+        add_log(f"❌ AI 研判异常: {str(e)}", "error")
 
-# 原有技能保留
-def execute_lotto_max_analysis(task_description: str):
-    # 省略内部实现以节约显示空间，与之前完全一致
-    model = genai.GenerativeModel('gemini-1.5-flash-latest')
-    prompt = f"分析 Lotto Max。描述: {task_description}"
-    result = model.generate_content(prompt).text
-    feedback = auto_feed_memory(data=result, source="gemini-1.5-flash")
-    return f"【🎲 Lotto Max 因果推演】\n{result}\n\n[状态]: {feedback}"
+def sweep_market():
+    """雷达扫描核心算法 (由前端心跳触发)"""
+    global IS_RADAR_ON
+    if not IS_RADAR_ON:
+        return
+        
+    for name, ticker in WATCH_LIST.items():
+        try:
+            # 获取最近 1 天，间隔 5 分钟的真实数据
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1d", interval="5m")
+            
+            if len(hist) < 2:
+                continue # 数据不足跳过
+                
+            last_close = hist['Close'].iloc[-1]
+            prev_close = hist['Close'].iloc[-2]
+            last_vol = hist['Volume'].iloc[-1]
+            prev_vol = hist['Volume'].iloc[-2]
+            
+            # 计算异动指标
+            price_change_pct = ((last_close - prev_close) / prev_close) * 100
+            
+            # 游资异动算法滤网 (参数可调，这里为演示设置得较敏感)
+            # 1. 价格急速拉升 (5分钟内涨幅大于 1.5%)
+            if price_change_pct > 1.5:
+                anomaly = f"直线拉升！5分钟急涨 {price_change_pct:.2f}% (现价: {last_close:.2f})"
+                add_log(f"🚨 [发现异动 - {name}]：{anomaly}", "alert")
+                # 开新线程让 AI 分析，不阻塞雷达继续扫描
+                threading.Thread(target=analyze_anomaly_with_ai, args=(ticker, name, anomaly, hist.tail(3).to_string())).start()
+                
+            # 2. 突然放量 (当前 5分钟量 是 上一个 5分钟量的 3倍以上)
+            elif prev_vol > 0 and (last_vol / prev_vol) > 3.0:
+                anomaly = f"异常放量！成交量骤增 {(last_vol/prev_vol):.1f} 倍 (现价: {last_close:.2f})"
+                add_log(f"⚠️ [量价异动 - {name}]：{anomaly}", "alert")
+                threading.Thread(target=analyze_anomaly_with_ai, args=(ticker, name, anomaly, hist.tail(3).to_string())).start()
+            
+            # 如果没有异动，静默，不发垃圾消息
+        except Exception as e:
+            # 静默处理单个股票的报错，防止刷屏
+            pass 
 
-# --- 5. 隐藏的 API 通讯接口 ---
+# --- 4. API 接口 (供前端大屏调用) ---
+
+@app.route('/toggle_radar', methods=['POST'])
+def toggle_radar():
+    global IS_RADAR_ON
+    data = request.json
+    IS_RADAR_ON = data.get('status', False)
+    status_str = "开启" if IS_RADAR_ON else "关闭"
+    add_log(f"⚙️ 指挥官已将雷达系统 {status_str}", "info")
+    return jsonify({"status": "success", "is_on": IS_RADAR_ON})
+
+@app.route('/heartbeat', methods=['GET'])
+def heartbeat():
+    """前端起搏器每 15 秒调用一次此接口，驱动雷达扫描并获取最新日志"""
+    if IS_RADAR_ON:
+        # 在后台线程执行扫描，防止前端请求超时
+        threading.Thread(target=sweep_market).start()
+    
+    return jsonify({"logs": RADAR_LOGS, "is_on": IS_RADAR_ON})
+
+# 原有的手动分析接口保留
 @app.route('/execute_task', methods=['POST'])
 def handle_task():
-    try:
-        data = request.json
-        task_description = data.get('task_description', '').lower()
-        
-        # 路由分发器升级
-        if "lotto max" in task_description:
-            result = execute_lotto_max_analysis(task_description)
-        elif "invest_a" in task_description:
-            # 默认提取茅台作为A股测试
-            result = execute_global_investment_simulation("A股", "600519.SS")
-        elif "invest_us" in task_description:
-            # 默认提取英伟达作为美股测试
-            result = execute_global_investment_simulation("美股", "NVDA")
-        elif "invest_hk" in task_description:
-            # 默认提取腾讯作为港股测试
-            result = execute_global_investment_simulation("港股", "0700.HK")
-        else:
-            result = "未知任务指令。"
-            
-        return jsonify({"status": "success", "result": result})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    return jsonify({"status": "error", "message": "已升级为自动雷达版，请使用网页雷达面板控制。"})
 
-# --- 6. 老板专属可视化网页前端代码 (投行控制台版) ---
+# --- 5. 游资专属可视化战情大屏 (黑客帝国风) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>🦞 小龙虾 15.1 · 量化投行指挥中心</title>
+    <title>🦞 赛博游资 · 全息盯盘中心</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 20px; background-color: #0d1117; color: #c9d1d9; max-width: 900px; margin: auto; }
-        .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #30363d; padding-bottom: 15px; }
-        h1 { color: #58a6ff; text-shadow: 0 0 10px rgba(88, 166, 255, 0.3); margin-bottom: 5px;}
-        .status-box { background: rgba(46, 160, 67, 0.1); border: 1px solid #2ea043; padding: 8px; border-radius: 5px; font-size: 13px; color: #3fb950;}
+        body { font-family: 'Courier New', Courier, monospace; background-color: #050505; color: #00ff00; margin: 0; padding: 15px; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        h1 { margin: 0 0 10px 0; font-size: 24px; color: #00ff00; text-shadow: 0 0 5px #00ff00; border-bottom: 1px solid #333; padding-bottom: 10px; display: flex; justify-content: space-between; align-items: center;}
         
-        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;}
-        .panel { background: #161b22; padding: 15px; border-radius: 8px; border: 1px solid #30363d; }
-        .panel h3 { margin-top: 0; color: #8b949e; font-size: 14px; border-bottom: 1px solid #30363d; padding-bottom: 5px;}
+        .radar-controls { display: flex; gap: 15px; margin-bottom: 15px; background: #111; padding: 15px; border: 1px solid #333; border-radius: 5px;}
+        .target-list { flex-grow: 1; font-size: 14px; color: #888; }
+        .target-list span { color: #00ff00; margin-right: 10px; }
         
-        .btn { border: 1px solid rgba(240, 246, 252, 0.1); padding: 12px 15px; font-size: 14px; font-weight: bold; border-radius: 6px; cursor: pointer; width: 100%; margin-bottom: 10px; transition: all 0.2s; background: #21262d; color: #c9d1d9; }
-        .btn:hover { background: #30363d; border-color: #8b949e; }
-        
-        .btn-us { border-left: 4px solid #1f6feb; } /* 科技蓝 */
-        .btn-hk { border-left: 4px solid #d29922; } /* 金融黄 */
-        .btn-a  { border-left: 4px solid #da3633; } /* 政策红 */
-        .btn-lotto { background: #8957e5; color: white; border: none; }
-        
-        .btn:disabled { background: #21262d; color: #484f58; border-color: #30363d; cursor: not-allowed; opacity: 0.5;}
-        
-        #console { white-space: pre-wrap; background: #010409; color: #3fb950; padding: 15px; border-radius: 6px; font-family: 'Consolas', monospace; min-height: 300px; border: 1px solid #30363d; font-size: 14px; line-height: 1.6; overflow-y: auto; max-height: 600px;}
-        .loading { color: #d29922 !important; }
-        .error { color: #f85149 !important; }
+        /* 雷达开关按钮 */
+        .switch { position: relative; display: inline-block; width: 60px; height: 34px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #ff0000; box-shadow: 0 0 10px #ff0000;}
+        input:checked + .slider:before { transform: translateX(26px); }
+        .radar-label { font-size: 18px; font-weight: bold; margin-left: 10px; line-height: 34px; color: #fff;}
+        .radar-on-text { color: #ff0000; text-shadow: 0 0 5px #ff0000; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        /* 滚动日志区 */
+        #terminal { flex-grow: 1; background: #000; border: 1px solid #333; padding: 10px; overflow-y: auto; display: flex; flex-direction: column-reverse; /* 新消息在下面 */ }
+        .log-line { margin-bottom: 8px; font-size: 15px; line-height: 1.4; border-bottom: 1px dashed #222; padding-bottom: 5px;}
+        .time { color: #888; font-size: 12px; margin-right: 10px; }
+        .type-info { color: #00aa00; }
+        .type-alert { color: #ff0000; font-weight: bold; background: rgba(255,0,0,0.1); }
+        .type-ai { color: #00ffff; }
+        .type-error { color: #ff00ff; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🦞 小龙虾 15.1 · 赛博投行部</h1>
-        <div class="status-box">🟢 沙箱考核引擎在线 | 雅虎财经数据流已桥接 | 100次考核法案生效中</div>
+    <h1>
+        <span>🦞 赛博游资核心 (V15.2)</span>
+        <span style="font-size:14px; color:#888;" id="pulse-indicator">● 信号连接中...</span>
+    </h1>
+
+    <div class="radar-controls">
+        <div>
+            <label class="switch">
+                <input type="checkbox" id="radar-toggle" onchange="toggleRadar(this.checked)">
+                <span class="slider"></span>
+            </label>
+            <span class="radar-label" id="radar-status-text">全域雷达：休眠中</span>
+        </div>
+        <div class="target-list">
+            <div><strong>[ 锁定目标池 ]</strong></div>
+            <span>🇨🇳 贵州茅台</span> <span>🇨🇳 东方财富</span> <span>🇺🇸 英伟达</span> <span>🇺🇸 特斯拉</span> <span>🇭🇰 腾讯控股</span>
+        </div>
     </div>
 
-    <div class="grid-container">
-        <div class="panel">
-            <h3>🌐 全球大类资产沙箱考核 (实盘数据)</h3>
-            <button class="btn btn-us" id="btn-us" onclick="sendCommand('invest_us')">🇺🇸 考核 美股 (T+0 算法/无涨跌幅)</button>
-            <button class="btn btn-hk" id="btn-hk" onclick="sendCommand('invest_hk')">🇭🇰 考核 港股 (T+0 算法/汇率机制)</button>
-            <button class="btn btn-a" id="btn-a" onclick="sendCommand('invest_a')">🇨🇳 考核 A股 (T+1 算法/涨跌幅管制)</button>
-        </div>
-        <div class="panel">
-            <h3>🎲 原有业务中枢</h3>
-            <button class="btn btn-lotto" id="btn-lotto" onclick="sendCommand('lotto max')">启动 Lotto Max 因果推演</button>
-        </div>
+    <div id="terminal">
+        <!-- 日志将在这里渲染 -->
     </div>
-
-    <h3 style="color: #8b949e; font-size: 14px; margin-bottom: 5px;">📡 彭博级研报终端：</h3>
-    <div id="console">等待量化指令接入...</div>
 
     <script>
-        async function sendCommand(taskType) {
-            const btns = document.querySelectorAll('.btn');
-            const consoleDiv = document.getElementById('console');
-            
-            // 锁定所有按钮
-            btns.forEach(b => b.disabled = true);
-            consoleDiv.className = 'loading';
-            
-            let loadingText = ">> 正在从 Yahoo Finance 抓取实时 Level-1 切片数据...\\n";
-            loadingText += ">> 正在加载 [" + taskType + "] 市场法律法规与风控库...\\n";
-            loadingText += ">> Gemini 1.5 正在进行沙箱模拟推演，计算中... (约需 10-20 秒)\\n";
-            consoleDiv.innerText = loadingText;
+        let isRadarOn = false;
 
+        async function toggleRadar(status) {
+            isRadarOn = status;
+            const textEl = document.getElementById('radar-status-text');
+            if (status) {
+                textEl.innerText = "全域雷达：🔥 扫描中 (游资算法已激活)";
+                textEl.className = "radar-label radar-on-text";
+            } else {
+                textEl.innerText = "全域雷达：休眠中";
+                textEl.className = "radar-label";
+            }
+            
+            await fetch('/toggle_radar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: status })
+            });
+            fetchPulse(); // 立即触发一次心跳
+        }
+
+        async function fetchPulse() {
+            const indicator = document.getElementById('pulse-indicator');
+            indicator.style.color = '#00ff00';
+            
             try {
-                const response = await fetch('/execute_task', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ task_description: taskType })
-                });
-                
+                const response = await fetch('/heartbeat');
                 const data = await response.json();
                 
-                if (data.status === 'success') {
-                    consoleDiv.className = ''; 
-                    consoleDiv.innerText = data.result;
-                } else {
-                    consoleDiv.className = 'error'; 
-                    consoleDiv.innerText = "❌ 引擎报告错误:\\n" + data.message;
+                // 同步后端雷达状态到前端开关 (防止刷新网页后状态不同步)
+                if (data.is_on !== isRadarOn) {
+                    isRadarOn = data.is_on;
+                    document.getElementById('radar-toggle').checked = isRadarOn;
+                    toggleRadar(isRadarOn); // 强制更新UI
                 }
+
+                // 渲染日志
+                const terminal = document.getElementById('terminal');
+                terminal.innerHTML = ''; // 清空
+                data.logs.forEach(log => {
+                    const div = document.createElement('div');
+                    div.className = 'log-line';
+                    let typeClass = 'type-info';
+                    if(log.type === 'alert') typeClass = 'type-alert';
+                    if(log.type === 'ai') typeClass = 'type-ai';
+                    if(log.type === 'error') typeClass = 'type-error';
+                    
+                    div.innerHTML = `<span class="time">[${log.time}]</span> <span class="${typeClass}">${log.msg}</span>`;
+                    terminal.appendChild(div);
+                });
+
             } catch (error) {
-                consoleDiv.className = 'error';
-                consoleDiv.innerText = "❌ 信号中断！\\n详细信息: " + error;
-            } finally {
-                // 解锁按钮
-                btns.forEach(b => b.disabled = false);
+                indicator.style.color = 'red';
+                indicator.innerText = "● 失去心跳连接...";
             }
+            
+            setTimeout(() => { indicator.style.color = '#888'; }, 500);
         }
+
+        // 心跳起搏器：每 15 秒向后端请求一次最新日志，并驱动后端雷达扫描
+        setInterval(fetchPulse, 15000);
+        
+        // 首次加载拉取一次数据
+        fetchPulse();
     </script>
 </body>
 </html>
