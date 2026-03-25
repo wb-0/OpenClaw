@@ -1,102 +1,95 @@
-# 小龙虾 15.1 - 核心执行引擎 (app.py) - 【Google Gemini 动力版 · 终极版】
+# 小龙虾 15.1 - 核心执行引擎 (app.py) - 【网页指挥中心终极版】
 
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from supabase import create_client, Client
 import google.generativeai as genai
 
-# --- 1. 开机自检：初始化与连接 ---
+# --- 1. 初始化系统 ---
 app = Flask(__name__)
 
-# --- 从 Render 的环境变量中加载密钥 ---
+# --- 2. 加载云端密钥 (Render 环境变量) ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# --- 检查并配置 Google Gemini ---
-if not GEMINI_API_KEY:
-    print("❌ 错误：GEMINI_API_KEY 未设置！")
-else:
+# --- 3. 配置大脑与记忆库 ---
+if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    print("✅ Google Gemini 引擎已配置。")
-
-# --- 检查并创建 Supabase 客户端 ---
-if not all([SUPABASE_URL, SUPABASE_KEY]):
-    print("❌ 错误：Supabase 密钥未完全设置！")
+    print("✅ Google Gemini 引擎已就绪。")
 else:
+    print("❌ 警告：未检测到 GEMINI_API_KEY！")
+
+if all([SUPABASE_URL, SUPABASE_KEY]):
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    print("✅ Supabase 记忆图书馆已连接。")
+    print("✅ Supabase 记忆图书馆已就绪。")
+else:
+    print("❌ 警告：未检测到 Supabase 密钥！")
 
+# --- 4. 核心技能定义 ---
 
-# --- 2. 核心能力：我的专长 ---
-
-# 专长一：学习与记忆
 def auto_feed_memory(data: str, source: str):
-    """核心逻辑：将成功的结果存入 Supabase"""
+    """技能一：经验沉淀 (保存结果到 Supabase)"""
     try:
         supabase.table('claw15_memory').insert({"content": data, "metadata": {"source": source}}).execute()
-        return "✅ 记忆已喂料，系统进化中..."
+        return "✅ 记忆已成功喂料入库，系统进化中..."
     except Exception as e:
-        error_message = f"❌ 记忆喂料失败: {e}"
-        print(error_message)
-        return error_message
+        error_msg = f"❌ 记忆喂料失败: {str(e)}"
+        print(error_msg)
+        return error_msg
 
-# 专长二：Lotto Max 分析
 def execute_lotto_max_analysis(task_description: str):
-    """执行 Lotto Max 分析任务 (由 Gemini 驱动)"""
+    """技能二：Lotto Max 深度推演 (调用 Gemini)"""
     try:
+        # 召唤 Gemini 1.5 极速版模型
         model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        prompt = f"你是一个顶级的彩票数据分析师，专门分析 Lotto Max。基于历史数据和当前趋势，请分析下一个 Lotto Max 的号码。任务描述: {task_description}"
+        prompt = f"你现在是【小龙虾 15.1 专家内阁】的首席彩票分析师。请针对 Lotto Max 进行严谨的数据与趋势推演。任务描述: {task_description}"
         
+        # 让 AI 开始思考 (这里会耗时十几秒)
         response = model.generate_content(prompt)
         result = response.text
         
-        # 任务成功后，调用“学习”专长
+        # 思考完毕，立刻保存经验
         feedback = auto_feed_memory(data=result, source="gemini-1.5-flash")
         
-        return f"【Lotto Max 分析报告 (Gemini 版)】\n{result}\n\n---\n{feedback}"
+        return f"【🎲 Lotto Max 因果推演报告】\n\n{result}\n\n=========================\n[系统状态]: {feedback}"
     except Exception as e:
-        error_message = f"❌ Gemini AI 分析失败: {e}"
-        print(error_message)
-        return error_message
+        return f"❌ Gemini AI 专家会诊失败，原因: {str(e)}"
 
-# 专长三：清洁生意情报
 def execute_cleaning_lead_task(task_description: str):
-    """执行清洁生意潜客挖掘任务"""
-    # 此处为未来扩展保留，目前返回一个示例结果
-    result = "发现新的高价值清洁订单：多伦多市中心 ABC 公司，5000平米办公室开荒保洁。联系人：Jane Doe。"
-    
-    # 任务成功后，调用“学习”专长
+    """技能三：清洁生意潜客挖掘 (演示版)"""
+    result = "【情报嗅探结果】\n目标：多伦多市中心 ABC 科技公司\n面积：约 5000 平方英尺 (新办公室)\n需求：开荒保洁与长期日常清洁\n建议：评级为 A 级，系统已生成邮件草稿备用。"
     feedback = auto_feed_memory(data=result, source="web_scraper_mock")
-    
-    return f"【清洁生意情报】\n{result}\n\n---\n{feedback}"
+    return f"【🧹 清洁生意高价值情报】\n\n{result}\n\n=========================\n[系统状态]: {feedback}"
 
-
-# --- 3. 通讯接口：我的耳朵和嘴巴 ---
+# --- 5. 隐藏的 API 通讯接口 ---
 
 @app.route('/execute_task', methods=['POST'])
 def handle_task():
-    """这是我接收任务的唯一地址"""
-    data = request.json
-    task_description = data.get('task_description', '').lower()
-    
-    if not task_description:
-        return jsonify({"error": "缺少任务描述 (task_description)"}), 400
-
-    # 根据任务描述，自动分配给不同的专长
-    if "lotto max" in task_description:
-        result = execute_lotto_max_analysis(task_description)
-    elif "cleaning" in task_description or "保洁" in task_description:
-        result = execute_cleaning_lead_task(task_description)
-    else:
-        result = "未知任务类型，无法执行。"
+    """接收来自网页面板的指令并分配任务"""
+    try:
+        data = request.json
+        task_description = data.get('task_description', '').lower()
         
-    return jsonify({"status": "success", "result": result})
+        if "lotto max" in task_description:
+            result = execute_lotto_max_analysis(task_description)
+        elif "cleaning" in task_description or "保洁" in task_description:
+            result = execute_cleaning_lead_task(task_description)
+        else:
+            result = "未知任务指令，无法识别。"
+            
+        return jsonify({"status": "success", "result": result})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
-@app.route('/', methods=['GET'])
-def health_check():
-    """这是我的心跳，证明我还活着"""
-    return "小龙虾 15.1 执行引擎在线 (Google Gemini 动力版)，待命中。"
+# --- 6. 老板专属可视化网页前端代码 ---
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>🦞 小龙虾 15.1 终极指挥中心</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background-
