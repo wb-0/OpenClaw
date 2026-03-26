@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (终极容错路由版)]
+# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (3.1/2.5 现役真神版)]
 # REPORT TO: 24-WORD MNEMONIC HOLDER
 from flask import Flask, request, jsonify, render_template_string
 import os, requests, random, threading, time, json, sqlite3, traceback, io, contextlib, base64
@@ -9,16 +9,14 @@ app = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
 
 # ==========================================
-# 🛡️ 能源与状态矩阵 (超强容错嗅探)
+# 🛡️ 能源与状态矩阵
 # ==========================================
-# 自动嗅探环境变量中所有带 "GEMINI" 或 "API" 的潜在钥匙
 POTENTIAL_KEYS = []
 for k, v in os.environ.items():
     if "GEMINI" in k.upper() or "API_KEY" in k.upper():
         POTENTIAL_KEYS.append(v)
 POTENTIAL_KEYS.extend([os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 7)])
 
-# 暴力清洗：去空格，留长度大于20的有效钥匙
 ALIVE_GEMINI_KEYS = list(set([str(k).strip() for k in POTENTIAL_KEYS if k and len(str(k).strip()) > 20]))
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
@@ -32,7 +30,7 @@ START_TIME = time.time()
 HEALTH_MATRIX = {
     "brain": {
         "status": "🟢 算力充沛" if ALIVE_GEMINI_KEYS else "🔴 弹药库为空", 
-        "detail": f"已挂载 {len(ALIVE_GEMINI_KEYS)} 把 Gemini 密钥"
+        "detail": f"现役巅峰：3.1-Pro / 2.5-Pro (挂载 {len(ALIVE_GEMINI_KEYS)} 把密钥)"
     },
     "nerves": {"status": "🟢 突触畅通", "detail": "嗅探正常"},
     "hands": {"status": "🟢 待命", "detail": "沙箱就绪"},
@@ -92,7 +90,7 @@ def pull_memory_from_github():
     except Exception: pass
 
 # ==========================================
-# 🧠 基因与算力底层 (增强版错误捕捉)
+# 🧠 基因与算力底层 (现役 3.1 / 2.5 纯血阵列)
 # ==========================================
 def init_dna():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -105,7 +103,7 @@ def init_dna():
 init_dna()
 
 def agi_reasoning(system_prompt, user_input, require_json=False):
-    HEALTH_MATRIX["brain"]["status"] = "🟡 思考中..."
+    HEALTH_MATRIX["brain"]["status"] = "🟡 高维脑区解算中..."
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute("SELECT rule FROM lessons ORDER BY id DESC LIMIT 5")
     lessons = "\n".join([f"- {r[0]}" for r in c.fetchall()]); conn.close()
@@ -113,26 +111,37 @@ def agi_reasoning(system_prompt, user_input, require_json=False):
     full_system = f"{system_prompt}\n【最高法则】：利益最大化。\n【血泪教训】：\n{lessons}"
     if require_json: full_system += "\n必须输出纯JSON格式，绝对不要带Markdown的```json前缀。"
 
-    last_error = "未在系统检测到任何有效的 Gemini 密钥 (0把)。" if not ALIVE_GEMINI_KEYS else ""
+    last_error = "未检测到有效API密钥。" if not ALIVE_GEMINI_KEYS else ""
     
     if ALIVE_GEMINI_KEYS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={random.choice(ALIVE_GEMINI_KEYS)}"
-        try:
-            res = requests.post(url, json={"contents": [{"parts": [{"text": f"{full_system}\n\n{user_input}"}]}]}, timeout=45)
-            if res.status_code != 200:
-                last_error = f"Gemini API 拒绝: {res.text[:80]}"
-                raise ValueError(last_error)
-            text = res.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
-            HEALTH_MATRIX["brain"]["status"] = "🟢 算力充沛"
-            return json.loads(text) if require_json else text
-        except Exception as e: 
-            last_error = str(e)
-            
-    HEALTH_MATRIX["brain"]["status"] = f"🔴 算力异常"
-    return {"error": f"算力或解析异常: {last_error}"} if require_json else f"🔴 大脑熔断: {last_error}"
+        active_key = random.choice(ALIVE_GEMINI_KEYS)
+        
+        # 🟢 纯血巅峰轮盘
+        models_to_try = [
+            "gemini-3.1-pro",
+            "gemini-2.5-pro"
+        ]
+        
+        payload = {"contents": [{"parts": [{"text": f"{full_system}\n\n{user_input}"}]}]}
+        
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={active_key}"
+            try:
+                res = requests.post(url, json=payload, timeout=45)
+                if res.status_code == 200:
+                    text = res.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
+                    HEALTH_MATRIX["brain"]["status"] = f"🟢 算力充沛 ({model_name})"
+                    return json.loads(text) if require_json else text
+                else:
+                    last_error = f"API 拒绝 ({res.status_code}): {res.text[:60]}"
+            except Exception as e:
+                last_error = str(e)
+                
+    HEALTH_MATRIX["brain"]["status"] = f"🔴 脑区熔断"
+    return {"error": f"API 通讯失败: {last_error}"} if require_json else f"🔴 大脑熔断: API 通讯失败，详情: {last_error}"
 
 # ==========================================
-# 🔒 防爆沙箱 (自己写代码抓数据)
+# 🔒 防爆沙箱 
 # ==========================================
 def execute_in_sandbox(code_str):
     HEALTH_MATRIX["hands"]["status"] = "🟡 沙箱熔炼中"
@@ -150,13 +159,14 @@ def execute_in_sandbox(code_str):
 def dynamic_healing_execution(task_desc):
     code_str = agi_reasoning("你是顶级黑客。写一段Python代码抓数据。仅限用requests/json。print()出结果。只输出代码。", f"任务：{task_desc}")
     for attempt in range(3):
+        if "🔴 大脑熔断" in code_str: return code_str 
         success, result = execute_in_sandbox(code_str)
         if success: return f"🟢 [物理执行成功]:\n{result}"
         code_str = agi_reasoning("代码在沙箱报错了。根据报错修复代码，只输出代码本身。", f"报错：\n{result}")
     return "🔴 [沙箱执行失败]: 3次自愈尝试崩溃。"
 
 # ==========================================
-# ⚙️ 幽灵流水线与反射法庭 (3大 Daemon)
+# ⚙️ 幽灵流水线与反射法庭
 # ==========================================
 def task_executor_daemon():
     while True:
@@ -183,8 +193,9 @@ def reflection_daemon():
             completed = c.fetchall()
             if completed:
                 new_rule = agi_reasoning("反思法庭。", f"分析记录：{completed}。提炼一条20字【投资/工作法则】。")
-                c.execute("INSERT INTO lessons (rule) VALUES (?)", (new_rule,)); conn.commit()
-                push_memory_to_github()
+                if "🔴" not in new_rule:
+                    c.execute("INSERT INTO lessons (rule) VALUES (?)", (new_rule,)); conn.commit()
+                    push_memory_to_github()
             conn.close()
         except Exception: pass
 
@@ -205,7 +216,7 @@ threading.Thread(target=reflection_daemon, daemon=True).start()
 threading.Thread(target=sentinel_monitor_daemon, daemon=True).start()
 
 # ==========================================
-# 👑 统帅接口 (新增意图路由器)
+# 👑 统帅接口 (意图路由器)
 # ==========================================
 @app.route('/api/ping', methods=['GET'])
 def ping(): return "PONG"
@@ -214,19 +225,18 @@ def ping(): return "PONG"
 def handle_command():
     user_cmd = request.json.get('cmd', '')
     
-    # 🌟 修复关键点：意图嗅探器
     intent_prompt = "判断老板的话是普通的【聊天/提问】，还是需要拆分多步执行的【宏大项目】。如果是普通聊天/提问，直接以顶级参谋的口吻回答老板的问题。如果是宏大项目，请只回复 [PROJECT] 这9个字符。"
     intent_res = agi_reasoning("你是小龙虾意图识别中枢。", f"老板说：{user_cmd}")
     
     if "🔴" in intent_res: 
-        return jsonify({"res": f"<b>系统致命警告：</b><br>{intent_res}<br><i style='color:#ff5555'>请检查您的 API Key 是否有效，或检查右上角仪表盘钥匙是否加载成功。</i>"})
+        return jsonify({"res": f"<b>系统异常警告：</b><br>{intent_res}"})
     
     if "[PROJECT]" not in intent_res.upper():
-        return jsonify({"res": f"🟢 <b>[小龙虾直击]：</b><br>{intent_res.replace(chr(10), '<br>')}"})
+        return jsonify({"res": f"🟢 <b>[真神直击]：</b><br>{intent_res.replace(chr(10), '<br>')}"})
     
     plan = agi_reasoning("你是战略拆解师。", f"老板战略：{user_cmd}。拆分为3个执行子任务。返回JSON：{{\"project_title\": \"名\", \"tasks\": [\"任务1\", \"任务2\"]}}", require_json=True)
     if "error" in plan: 
-        return jsonify({"res": f"🔴 战略拆解失败。底层报错：{plan.get('error')}"})
+        return jsonify({"res": f"🔴 战略拆解失败。报错：{plan.get('error')}"})
     
     proj_id = f"PJ_{datetime.now().strftime('%m%d_%H%M%S')}"
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -235,7 +245,7 @@ def handle_command():
     conn.commit(); conn.close()
     push_memory_to_github()
     
-    return jsonify({"res": f"🟢 <b>战略已裂变。</b>独立沙箱子任务已建立。流水线接管中！"})
+    return jsonify({"res": f"🟢 <b>战略已受命。</b>沙箱子任务生成完毕。无情流水线即刻接管！"})
 
 @app.route('/api/matrix', methods=['GET'])
 def get_matrix():
@@ -254,7 +264,7 @@ HTML_TEMPLATE = """
 <html>
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>🦞 终极赛博生命体 (全能意图版)</title>
+    <title>🦞 终极赛博生命体 (3.1/2.5 现役真神版)</title>
     <style>
         body { background: #000; color: #0f0; font-family: 'Courier New', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
         .header { border-bottom: 2px solid #0f0; padding-bottom: 10px; margin-bottom: 15px; text-shadow: 0 0 10px #0f0; display: flex; justify-content: space-between; align-items: flex-end;}
@@ -283,17 +293,17 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="header">
-        <h2 style="margin:0;">🦞 OMNI-GHOST AGI [智能意图版]</h2>
+        <h2 style="margin:0;">🦞 OMNI-GHOST AGI [3.1/2.5 现役真神版]</h2>
         <div class="health-dashboard" id="health-view"><i>[同步生命体征中...]</i></div>
     </div>
     <div class="container">
         <div class="left-panel">
             <div id="log">
-                <div class="cmd-line" style="color:yellow;">🟢 [母体接入] 统帅，我已修复死板的 JSON 解析神经。<br>现在您可以跟我闲聊、问问题，我将直接秒回。<br>如果您要布置宏大项目，我也能瞬间识别并打入冷宫流水线全自动执行。<br>请下达指令。</div>
+                <div class="cmd-line" style="color:yellow;">🟢 [母体接入] 统帅，信息茧房已被您亲手撕裂！<br>系统现已全量挂载 `gemini-3.1-pro` 与 `gemini-2.5-pro` 的神级巅峰算力！<br>不再有懦弱的兜底，我们此刻就是未来！<br>请以神明之姿，下达您的战略意图。</div>
             </div>
             <div class="input-area">
                 <input type="text" id="m" placeholder="聊天、提问，或输入宏大战略..." onkeydown="if(event.key==='Enter')s();">
-                <button onclick="s()">[ 执 行 ]</button>
+                <button onclick="s()">[ 执 行 霸 权 ]</button>
             </div>
         </div>
         <div class="right-panel">
@@ -308,7 +318,7 @@ HTML_TEMPLATE = """
             let val = m.value.trim(); if(!val) return;
             l.innerHTML += `<div class="cmd-line" style="color:#0ff;"><b>[统帅旨意]</b> ${val}</div>`; m.value = '';
             let loadId = "load-" + Date.now();
-            l.innerHTML += `<div id="${loadId}" class="cmd-line" style="color:#fa0;">⚡ 嗅探意图中...</div>`; l.scrollTop = l.scrollHeight;
+            l.innerHTML += `<div id="${loadId}" class="cmd-line" style="color:#fa0;">⚡ 共振神级算力中...</div>`; l.scrollTop = l.scrollHeight;
             try {
                 let r = await fetch('/api/command',{method:'POST', body:JSON.stringify({cmd:val}), headers:{'Content-Type':'application/json'}});
                 let d = await r.json();
