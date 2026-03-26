@@ -1,0 +1,16 @@
+# 幽灵心脏起搏器 - 每 5 分钟强行唤醒 Render
+name: 🦞 Lobster Keep-Alive Engine
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # 每 5 分钟触发一次
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🟢 唤醒主炮塔
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://lobster-engine-15-1.onrender.com/
+          echo "Render 节点已注入心跳。"
