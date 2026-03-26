@@ -1,0 +1,15 @@
+name: Phoenix Keep-Alive
+
+on:
+  schedule:
+    # 每 5 分钟执行一次心跳脉冲
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # 允许在网页上手动点击运行
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Server
+        run: |
+          curl -sS https://lobster-engine-15-1.onrender.com/api/ping || echo "Ping failed, but workflow continues."
