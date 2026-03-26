@@ -1,10 +1,11 @@
-# 小龙虾 15.3 - 核心执行引擎 (app.py) - 【量化圣杯 · 百年规律推演版】
+# 小龙虾 15.4 - 核心执行引擎 (app.py) - 【全自动幽灵基金 (Ghost Fund) 版】
 
 import os
 import json
+import time
 import threading
 import yfinance as yf
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, jsonify, render_template_string
 from supabase import create_client, Client
 import google.generativeai as genai
 from datetime import datetime
@@ -20,280 +21,264 @@ if GEMINI_API_KEY:
 if all([SUPABASE_URL, SUPABASE_KEY]):
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# 标的池
-WATCH_LIST = [
-    {"market": "A股", "name": "贵州茅台", "ticker": "600519.SS", "logic": "A股价值标杆/周期缩影"},
-    {"market": "A股", "name": "东方财富", "ticker": "300059.SZ", "logic": "A股牛熊风向标/券商情绪"},
-    {"market": "美股", "name": "英伟达", "ticker": "NVDA", "logic": "全球算力核心/纳指引擎"},
-    {"market": "港股", "name": "腾讯控股", "ticker": "0700.HK", "logic": "中国互联网Beta/外资蓄水池"}
+# --- 幽灵基金核心数据结构 (内存模拟数据库) ---
+# 阿尔法狩猎池 (幽灵雷达24小时循环扫描的目标)
+ALPHA_POOL = [
+    {"market": "美股", "ticker": "NVDA", "name": "英伟达"},
+    {"market": "美股", "ticker": "TSLA", "name": "特斯拉"},
+    {"market": "美股", "ticker": "AAPL", "name": "苹果"},
+    {"market": "A股", "ticker": "600519.SS", "name": "贵州茅台"},
+    {"market": "A股", "ticker": "300059.SZ", "name": "东方财富"},
+    {"market": "港股", "ticker": "0700.HK", "name": "腾讯控股"}
 ]
 
-# 存储深度推演报告的缓存
-REPORTS_CACHE = {}
+# 幽灵日志库 (保存最近的50条操盘记录和深度理由)
+GHOST_LOGS = []
+# 当前持仓 (虚拟账本)
+PORTFOLIO = {}
+# 雷达当前状态 (前端展示用)
+CURRENT_SCAN_TARGET = "系统预热中..."
 
-def get_market_laws(market):
-    """注入各市场成立以来的底层规律 (宏观左脑)"""
-    if market == "A股":
-        return "【A股历史规律法则】：1. 典型的‘牛短熊长’与‘均值回归’，情绪极度悲观时往往是政策底。2. 受宏观信贷周期和监管政策绝对主导。3. 资金喜欢在题材间轮动（炒新炒小炒差），但核心资产在长周期具备避险属性。4. T+1限制了日内纠错，买入必须考虑次日流动性溢价。"
-    elif market == "美股":
-        return "【美股历史规律法则】：1. 长期趋势向上（‘长牛’），受盈利增长、科技创新和回购驱动。2. 绝对受美联储货币政策（利率/流动性）支配。3. 财报季存在巨大的‘戴维斯双击/双杀’效应。4. T+0且无涨跌幅，趋势形成后极具连贯性，顺势交易是利益最大化的核心。"
-    elif market == "港股":
-        return "【港股历史规律法则】：1. 典型的‘离岸市场’，基本面看中国内地，流动性看美联储。2. 极度看重估值，容易出现‘估值陷阱’。3. 机构投资者主导，缺乏散户情绪溢价，趋势一旦破位极难修复。"
-    return ""
-
-def deep_quantum_analysis(ticker, name, market, logic):
-    """结合历史规律与实时数据的深度量化推演"""
-    global REPORTS_CACHE
-    try:
-        # 1. 抓取多维度数据：半年日线（看大周期） + 最近3天分时（看微观异动）
-        stock = yf.Ticker(ticker)
-        hist_daily = stock.history(period="6mo") # 半年数据
-        hist_intra = stock.history(period="3d", interval="30m") # 3天30分钟线
+def add_log(ticker, name, action, reason, price):
+    """记录操作日志，并同步到 Supabase 永久记忆库"""
+    time_str = datetime.now().strftime("%m-%d %H:%M")
+    log_entry = {
+        "time": time_str,
+        "ticker": ticker,
+        "name": name,
+        "action": action, # BUY, SELL, HOLD
+        "price": f"{price:.2f}",
+        "reason": reason
+    }
+    GHOST_LOGS.insert(0, log_entry)
+    if len(GHOST_LOGS) > 50:
+        GHOST_LOGS.pop()
         
-        if hist_daily.empty:
-            REPORTS_CACHE[ticker] = {"status": "error", "msg": "数据源获取失败"}
-            return
-
-        current_price = hist_daily['Close'].iloc[-1]
-        ma_20 = hist_daily['Close'].rolling(window=20).mean().iloc[-1]
-        ma_60 = hist_daily['Close'].rolling(window=60).mean().iloc[-1]
-
-        macro_laws = get_market_laws(market)
-
-        # 2. 召唤顶配大模型进行深度逻辑推演
-        model = genai.GenerativeModel('gemini-1.5-pro-latest') # 必须用 Pro 版本进行复杂推理
-        prompt = f"""
-        你现在是管理着千亿资金的全球宏观对冲基金主理人。
-        你的唯一目标是：在严格遵守各市场规则的前提下，实现利益绝对最大化。
-        
-        【目标标的】：{market} - {name} ({ticker})，代表属性：{logic}。
-        【当前微观数据】：最新价 {current_price:.2f}。20日均线 {ma_20:.2f}，60日均线 {ma_60:.2f}。
-        【宏观历史法则注入】：{macro_laws}
-        
-        请结合上述【宏观历史法则】与当前的【均线趋势位置】，穿透表面的连板或涨跌，给我一份严谨的决策。
-        请严格按以下 JSON 格式输出，不要有其他废话：
-        {{
-            "score": "0-100之间的整数 (低于60分坚决不买，90分以上砸锅卖铁)",
-            "trend_judgment": "用一句话总结当前所处的大周期阶段(如：处于长期底部的初期反弹 / 处于泡沫化高点)",
-            "action": "强烈买入 / 逢低建仓 / 持币观望 / 立即清仓",
-            "logic_reasoning": "结合市场历史规律，详细说明为什么做出这个决策？(控制在100字内)",
-            "risk_control": "止损价设在多少？止盈预期在哪？"
-        }}
-        """
-        
-        response = model.generate_content(prompt)
-        result_text = response.text.strip()
-        
-        # 清理可能的 markdown 标记，提取 JSON
-        if result_text.startswith("```json"):
-             result_text = result_text[7:-3]
-        elif result_text.startswith("```"):
-             result_text = result_text[3:-3]
-             
-        ai_decision = json.loads(result_text)
-        
-        # 3. 记忆沉淀：如果评分超过 80 分，存入 Supabase 记忆库作为经典战役记录
-        if int(ai_decision.get("score", 0)) >= 80 and supabase:
-             supabase.table('claw15_memory').insert({"content": f"{name}评级{ai_decision['score']}:{ai_decision['logic_reasoning']}", "metadata": {"source": "holy_grail"}}).execute()
-
-        REPORTS_CACHE[ticker] = {"status": "success", "data": ai_decision, "time": datetime.now().strftime("%m-%d %H:%M")}
-
-    except Exception as e:
-        REPORTS_CACHE[ticker] = {"status": "error", "msg": f"AI 逻辑推演异常: {str(e)}"}
-
-# --- 接口 ---
-@app.route('/get_dashboard_data', methods=['GET'])
-def get_dashboard_data():
-    """为前端提供轻量级的实时行情展示"""
-    data_list = []
-    for item in WATCH_LIST:
-        ticker = item['ticker']
+    # 异步写入 Supabase
+    if supabase and action in ["BUY", "SELL"]:
         try:
-            stock = yf.Ticker(ticker)
-            fast_info = stock.fast_info
-            current_price = fast_info.last_price
-            prev_close = fast_info.previous_close
-            change_pct = ((current_price - prev_close) / prev_close) * 100
-            
-            data_list.append({
-                "ticker": ticker,
-                "name": item['name'],
-                "market": item['market'],
-                "price": f"{current_price:.2f}",
-                "change": f"{change_pct:.2f}%",
-                "color": "red" if change_pct > 0 else "green" # A股红涨绿跌，美股相反，前端统一处理为红涨绿跌
-            })
+            supabase.table('claw15_memory').insert({"content": f"【{action}】{name}({ticker}) @ {price:.2f}。理由：{reason}", "metadata": {"source": "ghost_fund"}}).execute()
         except:
-             data_list.append({"ticker": ticker, "name": item['name'], "market": item['market'], "price": "加载中", "change": "-", "color": "white"})
-             
-    return jsonify(data_list)
+            pass
 
-@app.route('/trigger_deep_analysis', methods=['POST'])
-def trigger_deep_analysis():
-    """触发深度长周期分析 (后台异步执行)"""
-    data = request.json
-    ticker = data.get('ticker')
-    target_item = next((item for item in WATCH_LIST if item["ticker"] == ticker), None)
+# --- 核心幽灵巡逻引擎 (在后台无限循环运行) ---
+def ghost_scanner_loop():
+    global CURRENT_SCAN_TARGET
+    pool_index = 0
     
-    if target_item:
-        REPORTS_CACHE[ticker] = {"status": "loading"} # 标记正在分析
-        # 开新线程去跑复杂的 AI 分析，不卡死服务器
-        threading.Thread(target=deep_quantum_analysis, args=(ticker, target_item['name'], target_item['market'], target_item['logic'])).start()
-        return jsonify({"status": "started"})
-    return jsonify({"status": "error", "msg": "未找到标的"})
+    while True:
+        try:
+            # 1. 锁定当前扫描目标
+            target = ALPHA_POOL[pool_index]
+            ticker = target['ticker']
+            name = target['name']
+            market = target['market']
+            CURRENT_SCAN_TARGET = f"正在深度扫描：{market} - {name} ({ticker})"
+            
+            # 2. 抓取真实量价切片 (最近1个月日线 + 最近3天分时)
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1mo")
+            if hist.empty:
+                time.sleep(10)
+                continue
+            
+            current_price = hist['Close'].iloc[-1]
+            ma_5 = hist['Close'].rolling(window=5).mean().iloc[-1]
+            ma_20 = hist['Close'].rolling(window=20).mean().iloc[-1]
+            
+            # 3. 判断是否已经持仓
+            is_holding = ticker in PORTFOLIO
+            holding_info = f"当前已持仓，成本价：{PORTFOLIO[ticker]['cost']}。" if is_holding else "当前未持仓。"
 
-@app.route('/get_analysis_report', methods=['GET'])
-def get_analysis_report():
-    """前端轮询获取分析结果"""
-    ticker = request.args.get('ticker')
-    report = REPORTS_CACHE.get(ticker, {"status": "none"})
-    return jsonify(report)
+            # 4. 召唤顶配 Gemini 进行全自动上帝视角决策
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
+            prompt = f"""
+            你是一个完全不受人类情绪影响的【幽灵量化基金】AI主理人。
+            目标标的：{market} - {name} ({ticker})
+            当前价格：{current_price:.2f}。5日均线：{ma_5:.2f}。20日均线：{ma_20:.2f}。
+            持仓状态：{holding_info}
+            
+            请结合{market}的交易规则，分析其近期趋势。
+            请严格按以下 JSON 格式输出你的绝对决策（不要输出其他任何字符）：
+            {{
+                "action": "BUY" (如果未持仓且看大涨) 或 "SELL" (如果已持仓且破位/止盈) 或 "HOLD" (观望或继续持有),
+                "reason": "作为顶级操盘手，详细说明为什么做出这个买/卖/观望的决定？结合均线、量价和宏观逻辑。(字数控制在80字左右)"
+            }}
+            """
+            
+            response = model.generate_content(prompt)
+            result_text = response.text.strip()
+            
+            if result_text.startswith("```json"):
+                 result_text = result_text[7:-3]
+            elif result_text.startswith("```"):
+                 result_text = result_text[3:-3]
+                 
+            decision = json.loads(result_text)
+            action = decision.get('action', 'HOLD')
+            reason = decision.get('reason', 'AI 逻辑分析失败')
+            
+            # 5. 执行虚拟交易，更新账本
+            if action == "BUY" and not is_holding:
+                PORTFOLIO[ticker] = {"name": name, "cost": current_price, "time": datetime.now().strftime("%m-%d %H:%M")}
+                add_log(ticker, name, "BUY", reason, current_price)
+            elif action == "SELL" and is_holding:
+                del PORTFOLIO[ticker]
+                add_log(ticker, name, "SELL", reason, current_price)
+            else:
+                # 即使是 HOLD，也记录到后台，但前端可以过滤掉以防刷屏，这里我们记录下来展示 AI 的思考过程
+                add_log(ticker, name, "HOLD", reason, current_price)
 
-# --- 量化圣杯可视化大屏 (黑金华尔街风) ---
+        except Exception as e:
+            print(f"幽灵引擎扫描 {target['name']} 时异常: {e}")
+            
+        # 6. 轮换下一个标的，休息 45 秒防止被 API 封禁
+        pool_index = (pool_index + 1) % len(ALPHA_POOL)
+        time.sleep(45)
+
+# 启动幽灵引擎 (它会在后台永远运行，不依赖网页请求)
+threading.Thread(target=ghost_scanner_loop, daemon=True).start()
+
+
+# --- API 接口 (供前端大屏无刷新调用) ---
+@app.route('/api/god_view', methods=['GET'])
+def get_god_view():
+    """上帝视角接口：一次性返回雷达状态、操作日志和持仓账本"""
+    return jsonify({
+        "current_scan": CURRENT_SCAN_TARGET,
+        "portfolio": PORTFOLIO,
+        "logs": GHOST_LOGS[:15] # 前端只展示最新15条
+    })
+
+# --- 老板专属：上帝视角监控中心 (全景全自动版) ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>🏆 量化圣杯系统 (V15.3)</title>
+    <title>👁️ 小龙虾 15.4 · 幽灵基金上帝视角</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0d0e15; color: #e2e8f0; margin: 0; padding: 20px; }
-        h1 { text-align: center; color: #d4af37; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid #d4af37; padding-bottom: 15px; margin-bottom: 30px;}
-        .subtitle { text-align: center; font-size: 14px; color: #64748b; margin-top: -20px; margin-bottom: 30px;}
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #0a0a0a; color: #d1d5db; margin: 0; padding: 20px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px;}
+        h1 { color: #10b981; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px rgba(16, 185, 129, 0.4);}
+        .radar-status { font-family: monospace; font-size: 16px; color: #f59e0b; background: #1f2937; padding: 8px 15px; border-radius: 4px; border: 1px solid #374151;}
         
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; max-width: 1200px; margin: 0 auto; }
-        .card { background: #1e293b; border-radius: 10px; padding: 20px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); border: 1px solid #334155; position: relative;}
+        .main-container { display: flex; gap: 20px; height: calc(100vh - 100px); }
         
-        .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 15px;}
-        .card-title { font-size: 20px; font-weight: bold; color: #f8fafc;}
-        .market-tag { font-size: 12px; padding: 3px 8px; border-radius: 4px; background: #475569; color: #fff;}
+        /* 左侧：操作记录与 AI 深度理由 */
+        .logs-panel { flex: 2; background: #111827; border-radius: 8px; border: 1px solid #1f2937; display: flex; flex-direction: column; overflow: hidden;}
+        .panel-title { background: #1f2937; padding: 12px 20px; font-weight: bold; color: #f3f4f6; font-size: 16px; border-bottom: 1px solid #374151; margin: 0;}
+        .log-container { flex: 1; overflow-y: auto; padding: 15px; }
+        .log-card { background: #1f2937; border-radius: 6px; padding: 15px; margin-bottom: 15px; border-left: 4px solid #4b5563; box-shadow: 0 4px 6px rgba(0,0,0,0.3);}
+        .log-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px;}
+        .log-name { font-weight: bold; font-size: 16px; color: #fff;}
+        .action-BUY { color: #ef4444; font-weight: bold; font-size: 18px;} /* A股红涨绿跌习惯 */
+        .action-SELL { color: #10b981; font-weight: bold; font-size: 18px;}
+        .action-HOLD { color: #6b7280; font-weight: bold; font-size: 16px;}
+        .log-reason { color: #9ca3af; font-size: 14px; line-height: 1.6;}
         
-        .price-section { display: flex; align-items: baseline; gap: 10px; margin-bottom: 20px;}
-        .price { font-size: 28px; font-weight: bold; font-family: monospace;}
-        .change { font-size: 16px; font-weight: bold;}
-        .red { color: #ef4444; } /* 涨 */
-        .green { color: #22c55e; } /* 跌 */
+        /* 右侧：当前持仓 */
+        .portfolio-panel { flex: 1; background: #111827; border-radius: 8px; border: 1px solid #1f2937; display: flex; flex-direction: column; overflow: hidden;}
+        .portfolio-container { padding: 15px; overflow-y: auto;}
+        .holding-item { display: flex; justify-content: space-between; background: #1f2937; padding: 12px; border-radius: 4px; margin-bottom: 10px; border-left: 2px solid #ef4444;}
+        .holding-name { font-weight: bold; color: #fff;}
+        .holding-cost { color: #9ca3af; font-size: 13px;}
         
-        .btn-analyze { background: linear-gradient(135deg, #d4af37, #b8860b); color: #000; border: none; padding: 10px 15px; width: 100%; border-radius: 6px; font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.3s;}
-        .btn-analyze:hover { filter: brightness(1.2); }
-        .btn-analyze:disabled { background: #475569; color: #94a3b8; cursor: not-allowed; }
-        
-        /* AI 报告呈现区 */
-        .report-box { margin-top: 15px; background: #0f172a; border-radius: 6px; padding: 15px; border-left: 4px solid #d4af37; display: none;}
-        .score-circle { width: 50px; height: 50px; border-radius: 50%; background: #000; color: #d4af37; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: bold; border: 2px solid #d4af37; float: right;}
-        .report-line { margin-bottom: 10px; font-size: 14px; line-height: 1.5; color: #cbd5e1;}
-        .report-label { color: #94a3b8; font-weight: bold; margin-right: 5px;}
-        .highlight { color: #d4af37; font-weight: bold;}
-        
-        .loading-text { text-align: center; color: #d4af37; font-size: 14px; margin-top: 15px; display: none; animation: pulse 1.5s infinite;}
-        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-
+        /* 闪烁光标 */
+        .blink { animation: blinker 1s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
-    <h1>🏆 量化圣杯指挥舱</h1>
-    <div class="subtitle">历史周期法则注入完成 | 多因子博弈模型在线 | 利益最大化协议生效中</div>
+    <div class="header">
+        <h1>👁️ 幽灵量化基金 (Ghost Fund)</h1>
+        <div class="radar-status" id="radar-status"><span class="blink">●</span> 正在连接核心服务器...</div>
+    </div>
 
-    <div class="grid" id="dashboard">
-        <!-- 卡片将由 JS 动态生成 -->
+    <div class="main-container">
+        <!-- 左侧：AI 决策流 -->
+        <div class="logs-panel">
+            <h3 class="panel-title">🧠 核心决策流 & 深度博弈理由 (实时同步)</h3>
+            <div class="log-container" id="log-container">
+                <!-- 日志动态加载 -->
+                <div style="text-align:center; color:#6b7280; margin-top: 50px;">等待幽灵引擎传回第一条情报...</div>
+            </div>
+        </div>
+
+        <!-- 右侧：虚拟持仓 -->
+        <div class="portfolio-panel">
+            <h3 class="panel-title">💼 当前虚拟持仓 (Alpha 阵列)</h3>
+            <div class="portfolio-container" id="portfolio-container">
+                <!-- 持仓动态加载 -->
+            </div>
+        </div>
     </div>
 
     <script>
-        // 1. 初始化仪表盘基本数据 (轻量级)
-        async function loadDashboard() {
-            const res = await fetch('/get_dashboard_data');
-            const data = await res.json();
-            const grid = document.getElementById('dashboard');
-            grid.innerHTML = '';
-            
-            data.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'card';
-                card.id = `card-${item.ticker}`;
-                card.innerHTML = `
-                    <div class="card-header">
-                        <div class="card-title">${item.name} (${item.ticker})</div>
-                        <div class="market-tag">${item.market}</div>
-                    </div>
-                    <div class="price-section">
-                        <div class="price">${item.price}</div>
-                        <div class="change ${item.color}">${item.change}</div>
-                    </div>
-                    <button class="btn-analyze" id="btn-${item.ticker}" onclick="triggerAnalysis('${item.ticker}')">
-                        🧠 发起百年周期规律深度推演
-                    </button>
-                    <div class="loading-text" id="loading-${item.ticker}">
-                        [系统] 正在调取历史周期规律...<br>
-                        [AI] 正在进行利益最大化多因子博弈计算...
-                    </div>
-                    <div class="report-box" id="report-${item.ticker}"></div>
-                `;
-                grid.appendChild(card);
-            });
-        }
-
-        // 2. 触发深度分析 (异步)
-        async function triggerAnalysis(ticker) {
-            const btn = document.getElementById(`btn-${ticker}`);
-            const loading = document.getElementById(`loading-${ticker}`);
-            const reportBox = document.getElementById(`report-${ticker}`);
-            
-            btn.style.display = 'none';
-            reportBox.style.display = 'none';
-            loading.style.display = 'block';
-
-            await fetch('/trigger_deep_analysis', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ticker: ticker })
-            });
-
-            // 启动轮询检查结果
-            checkReport(ticker, btn, loading, reportBox);
-        }
-
-        // 3. 轮询获取分析结果
-        function checkReport(ticker, btn, loading, reportBox) {
-            const interval = setInterval(async () => {
-                const res = await fetch(`/get_analysis_report?ticker=${ticker}`);
-                const report = await res.json();
-
-                if (report.status === 'success') {
-                    clearInterval(interval);
-                    loading.style.display = 'none';
-                    btn.style.display = 'block';
-                    btn.innerText = "🔄 重新推演更新";
+        async function fetchGodView() {
+            try {
+                const res = await fetch('/api/god_view');
+                const data = await res.json();
+                
+                // 1. 更新雷达状态
+                document.getElementById('radar-status').innerHTML = `<span class="blink" style="color:#10b981">●</span> ${data.current_scan}`;
+                
+                // 2. 更新操作日志
+                const logContainer = document.getElementById('log-container');
+                logContainer.innerHTML = '';
+                data.logs.forEach(log => {
+                    const card = document.createElement('div');
+                    card.className = 'log-card';
+                    // 根据动作改变边框颜色
+                    if(log.action === 'BUY') card.style.borderLeftColor = '#ef4444';
+                    if(log.action === 'SELL') card.style.borderLeftColor = '#10b981';
                     
-                    const ai = report.data;
-                    reportBox.style.display = 'block';
+                    let actionText = log.action === 'BUY' ? '建仓买入' : (log.action === 'SELL' ? '止盈/止损卖出' : '持续观望');
                     
-                    // 根据分数变换颜色
-                    let scoreColor = "#ef4444"; // 红色(低分)
-                    if(ai.score >= 60) scoreColor = "#eab308"; // 黄色(及格)
-                    if(ai.score >= 80) scoreColor = "#22c55e"; // 绿色(高分买入)
-                    
-                    reportBox.innerHTML = `
-                        <div class="score-circle" style="border-color:${scoreColor}; color:${scoreColor}">${ai.score}</div>
-                        <div class="report-line"><span class="report-label">研判时间:</span> ${report.time}</div>
-                        <div class="report-line"><span class="report-label">周期定性:</span> <span class="highlight">${ai.trend_judgment}</span></div>
-                        <div class="report-line"><span class="report-label">操盘指令:</span> <span style="color:${scoreColor}; font-weight:bold; font-size:16px;">${ai.action}</span></div>
-                        <div class="report-line"><span class="report-label">底层逻辑:</span> ${ai.logic_reasoning}</div>
-                        <div class="report-line"><span class="report-label">风控纪律:</span> ${ai.risk_control}</div>
+                    card.innerHTML = `
+                        <div class="log-header">
+                            <div><span class="log-name">${log.name} (${log.ticker})</span> <span style="color:#6b7280; font-size:12px; margin-left:10px">${log.time}</span></div>
+                            <div class="action-${log.action}">${actionText} @ ${log.price}</div>
+                        </div>
+                        <div class="log-reason"><strong style="color:#e5e7eb">AI 深度推演：</strong>${log.reason}</div>
                     `;
-                } else if (report.status === 'error') {
-                    clearInterval(interval);
-                    loading.style.display = 'none';
-                    btn.style.display = 'block';
-                    alert("推演失败: " + report.msg);
+                    logContainer.appendChild(card);
+                });
+
+                // 3. 更新持仓账本
+                const portContainer = document.getElementById('portfolio-container');
+                portContainer.innerHTML = '';
+                const holdings = Object.keys(data.portfolio);
+                if(holdings.length === 0) {
+                    portContainer.innerHTML = '<div style="color:#6b7280; text-align:center; padding:20px;">空仓中，等待狩猎信号。</div>';
+                } else {
+                    holdings.forEach(ticker => {
+                        const item = data.portfolio[ticker];
+                        const div = document.createElement('div');
+                        div.className = 'holding-item';
+                        div.innerHTML = `
+                            <div>
+                                <div class="holding-name">${item.name}</div>
+                                <div class="holding-cost">${ticker}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:#ef4444; font-weight:bold;">持仓中</div>
+                                <div class="holding-cost">建仓价: ${item.cost}</div>
+                            </div>
+                        `;
+                        portContainer.appendChild(div);
+                    });
                 }
-                // 如果是 loading，继续等待下一秒
-            }, 2000); // 每2秒问一次后台
+
+            } catch (error) {
+                document.getElementById('radar-status').innerHTML = `<span style="color:red">● 信号中断，正在重连...</span>`;
+            }
         }
 
-        // 启动加载
-        loadDashboard();
-        // 设定每 30 秒刷新一次头部轻量级行情价格
-        setInterval(loadDashboard, 30000); 
+        // 页面打开后，立刻拉取一次数据
+        fetchGodView();
+        // 之后每 10 秒自动拉取一次，实现真正的“全自动看盘”
+        setInterval(fetchGodView, 10000);
     </script>
 </body>
 </html>
