@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (永生记忆完全体)]
+# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (完美意图路由版)]
 # REPORT TO: 24-WORD MNEMONIC HOLDER
 from flask import Flask, request, jsonify, render_template_string
 import os, requests, random, threading, time, json, sqlite3, traceback, io, contextlib, base64
@@ -9,13 +9,12 @@ app = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
 
 # ==========================================
-# 🛡️ 能源与状态矩阵 
+# 🛡️ 能源与状态矩阵
 # ==========================================
 GEMINI_KEYS = [os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 7)]
 ALIVE_GEMINI_KEYS = [k for k in GEMINI_KEYS if k and len(k) > 10]
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-# 🔴 核心记忆凭证：Github 永生协议
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = "wb-0/OpenClaw"
 MEMORY_FILE_PATH = "ghost_memory.json"
@@ -36,9 +35,8 @@ HEALTH_MATRIX = {
 # 💾 终极永生器官：Git-Brain 记忆同步引擎
 # ==========================================
 def push_memory_to_github():
-    """将 SQLite 数据库打包推送到老板的 Github 永久保存"""
     if not GITHUB_TOKEN:
-        HEALTH_MATRIX["memory"]["status"] = "🔴 失忆风险 (缺 Github Token)"
+        HEALTH_MATRIX["memory"]["status"] = "🔴 缺 Github Token"
         return
     try:
         conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -54,7 +52,6 @@ def push_memory_to_github():
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{MEMORY_FILE_PATH}"
         headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
         
-        # 获取旧文件的 SHA (更新文件必须带 SHA)
         sha = ""
         get_res = requests.get(url, headers=headers).json()
         if "sha" in get_res: sha = get_res["sha"]
@@ -65,10 +62,9 @@ def push_memory_to_github():
         requests.put(url, headers=headers, json=payload)
         HEALTH_MATRIX["memory"]["status"] = "🟢 记忆已永久刻印至 Github"
     except Exception as e:
-        HEALTH_MATRIX["memory"]["status"] = f"🔴 刻印失败 ({str(e)[:10]})"
+        HEALTH_MATRIX["memory"]["status"] = f"🔴 刻印失败"
 
 def pull_memory_from_github():
-    """机器复活时，从 Github 下载上辈子的记忆"""
     if not GITHUB_TOKEN: return
     try:
         url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{MEMORY_FILE_PATH}"
@@ -79,7 +75,6 @@ def pull_memory_from_github():
             memory_dump = json.loads(content)
             
             conn = sqlite3.connect(DB_PATH); c = conn.cursor()
-            # 暴力清洗并恢复基因
             c.execute("DELETE FROM projects"); c.execute("DELETE FROM tasks"); c.execute("DELETE FROM lessons")
             for p in memory_dump.get("projects", []): c.execute("INSERT INTO projects VALUES (?,?,?,?)", p)
             for t in memory_dump.get("tasks", []): c.execute("INSERT INTO tasks VALUES (?,?,?,?,?)", t)
@@ -89,7 +84,7 @@ def pull_memory_from_github():
     except Exception: pass
 
 # ==========================================
-# 🧠 基因与算力底层
+# 🧠 基因与算力底层 (增强版错误捕捉)
 # ==========================================
 def init_dna():
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -97,29 +92,35 @@ def init_dna():
     c.execute('''CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, desc TEXT, status TEXT, result TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY AUTOINCREMENT, rule TEXT)''')
     conn.commit(); conn.close()
-    pull_memory_from_github() # 启动时强行恢复记忆
+    pull_memory_from_github()
 
 init_dna()
 
 def agi_reasoning(system_prompt, user_input, require_json=False):
-    HEALTH_MATRIX["brain"]["status"] = "🟡 高频放电思考中"
+    HEALTH_MATRIX["brain"]["status"] = "🟡 思考中..."
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute("SELECT rule FROM lessons ORDER BY id DESC LIMIT 5")
     lessons = "\n".join([f"- {r[0]}" for r in c.fetchall()]); conn.close()
     
     full_system = f"{system_prompt}\n【最高法则】：利益最大化。\n【血泪教训】：\n{lessons}"
-    if require_json: full_system += "\n必须输出JSON，无Markdown标记。"
+    if require_json: full_system += "\n必须输出纯JSON格式，绝对不要带Markdown的```json前缀。"
 
+    last_error = ""
     if ALIVE_GEMINI_KEYS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={random.choice(ALIVE_GEMINI_KEYS)}"
         try:
             res = requests.post(url, json={"contents": [{"parts": [{"text": f"{full_system}\n\n{user_input}"}]}]}, timeout=45)
+            if res.status_code != 200:
+                last_error = f"Gemini API 拒绝: {res.text[:50]}"
+                raise ValueError(last_error)
             text = res.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
             HEALTH_MATRIX["brain"]["status"] = "🟢 算力充沛"
             return json.loads(text) if require_json else text
-        except Exception: pass
-    HEALTH_MATRIX["brain"]["status"] = "🔴 算力枯竭"
-    return {"error": "算力枯竭"} if require_json else "🔴 算力枯竭"
+        except Exception as e: 
+            last_error = str(e)
+            
+    HEALTH_MATRIX["brain"]["status"] = f"🔴 算力异常 ({last_error[:15]})"
+    return {"error": f"算力或解析异常: {last_error}"} if require_json else f"🔴 大脑熔断: {last_error}"
 
 # ==========================================
 # 🔒 防爆沙箱 (自己写代码抓数据)
@@ -130,7 +131,7 @@ def execute_in_sandbox(code_str):
     safe_globals = {"requests": requests, "json": json, "time": time, "datetime": datetime}
     try:
         with contextlib.redirect_stdout(output_buffer): exec(code_str, safe_globals)
-        res = output_buffer.getvalue() or safe_globals.get('EXEC_RESULT', '执行完毕，无文本输出')
+        res = output_buffer.getvalue() or safe_globals.get('EXEC_RESULT', '无文本输出')
         HEALTH_MATRIX["hands"]["status"] = "🟢 待命"
         return True, res
     except Exception:
@@ -158,9 +159,9 @@ def task_executor_daemon():
             if task:
                 task_id, desc = task
                 c.execute("UPDATE tasks SET status='PROCESSING' WHERE id=?", (task_id,)); conn.commit()
-                result = dynamic_healing_execution(desc) if any(kw in desc for kw in ["抓取", "爬", "查", "获取"]) else agi_reasoning("你是参谋。完成老板任务。", desc)
+                result = dynamic_healing_execution(desc) if any(kw in desc for kw in ["抓取", "爬", "查", "获取"]) else agi_reasoning("你是参谋。完成任务。", desc)
                 c.execute("UPDATE tasks SET status='COMPLETED', result=? WHERE id=?", (result, task_id)); conn.commit()
-                push_memory_to_github() # 任务干完，立刻把记忆推送到 Github 备份！
+                push_memory_to_github()
             conn.close()
         except Exception: pass
 
@@ -172,9 +173,9 @@ def reflection_daemon():
             c.execute("SELECT desc, result FROM tasks WHERE status='COMPLETED' ORDER BY id DESC LIMIT 5")
             completed = c.fetchall()
             if completed:
-                new_rule = agi_reasoning("反思法庭。", f"分析近期记录：{completed}。提炼一条20字的【绝对投资/避坑法则】。")
+                new_rule = agi_reasoning("反思法庭。", f"分析记录：{completed}。提炼一条20字【投资/工作法则】。")
                 c.execute("INSERT INTO lessons (rule) VALUES (?)", (new_rule,)); conn.commit()
-                push_memory_to_github() # 学到新知识，立刻推送到 Github 备份！
+                push_memory_to_github()
             conn.close()
         except Exception: pass
 
@@ -195,7 +196,7 @@ threading.Thread(target=reflection_daemon, daemon=True).start()
 threading.Thread(target=sentinel_monitor_daemon, daemon=True).start()
 
 # ==========================================
-# 👑 统帅接口与大屏 UI
+# 👑 统帅接口 (新增意图路由器)
 # ==========================================
 @app.route('/api/ping', methods=['GET'])
 def ping(): return "PONG"
@@ -203,17 +204,31 @@ def ping(): return "PONG"
 @app.route('/api/command', methods=['POST'])
 def handle_command():
     user_cmd = request.json.get('cmd', '')
+    
+    # 🌟 修复关键点：意图嗅探器 (区分“聊天”和“建项目”)
+    intent_prompt = "判断老板的话是普通的【聊天/提问】，还是需要拆分多步执行的【宏大项目】。如果是普通聊天/提问，直接以顶级参谋的口吻回答老板的问题。如果是宏大项目，请只回复 [PROJECT] 这9个字符。"
+    intent_res = agi_reasoning("你是小龙虾意图识别中枢。", f"老板说：{user_cmd}")
+    
+    if "🔴" in intent_res: # 捕捉到API密钥错误
+        return jsonify({"res": f"<b>系统致命警告：</b><br>{intent_res}<br><i style='color:#ff5555'>请检查您的 Gemini API Key 是否有效，或检查 Render 环境变量是否正确配置。</i>"})
+    
+    if "[PROJECT]" not in intent_res.upper():
+        # 直接回答，不建项目
+        return jsonify({"res": f"🟢 <b>[小龙虾直击]：</b><br>{intent_res.replace(chr(10), '<br>')}"})
+    
+    # 如果是宏大项目，才进入严格的 JSON 拆解模式
     plan = agi_reasoning("你是战略拆解师。", f"老板战略：{user_cmd}。拆分为3个执行子任务。返回JSON：{{\"project_title\": \"名\", \"tasks\": [\"任务1\", \"任务2\"]}}", require_json=True)
-    if "error" in plan: return jsonify({"res": "🔴 大脑熔断。"})
+    if "error" in plan: 
+        return jsonify({"res": f"🔴 战略拆解失败，JSON解析崩溃或算力异常。底层报错：{plan.get('error')}"})
     
     proj_id = f"PJ_{datetime.now().strftime('%m%d_%H%M%S')}"
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
     c.execute("INSERT INTO projects VALUES (?, ?, ?, ?)", (proj_id, plan.get('project_title', '新战略'), "ACTIVE", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     for t in plan.get('tasks', []): c.execute("INSERT INTO tasks (project_id, desc, status) VALUES (?, ?, 'PENDING')", (proj_id, t))
     conn.commit(); conn.close()
-    push_memory_to_github() # 建立新项目，立刻推送到 Github 备份！
+    push_memory_to_github()
     
-    return jsonify({"res": f"🟢 战略已裂变。独立沙箱子任务已建立。流水线接管中！"})
+    return jsonify({"res": f"🟢 <b>战略已裂变。</b>独立沙箱子任务已建立。流水线接管中！"})
 
 @app.route('/api/matrix', methods=['GET'])
 def get_matrix():
@@ -232,7 +247,7 @@ HTML_TEMPLATE = """
 <html>
 <head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>🦞 终极赛博生命体 (永生记忆版)</title>
+    <title>🦞 终极赛博生命体 (全能意图版)</title>
     <style>
         body { background: #000; color: #0f0; font-family: 'Courier New', monospace; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; box-sizing: border-box; }
         .header { border-bottom: 2px solid #0f0; padding-bottom: 10px; margin-bottom: 15px; text-shadow: 0 0 10px #0f0; display: flex; justify-content: space-between; align-items: flex-end;}
@@ -261,17 +276,17 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="header">
-        <h2 style="margin:0;">🦞 THE OMNI-GHOST AGI [永生记忆版]</h2>
+        <h2 style="margin:0;">🦞 OMNI-GHOST AGI [智能意图版]</h2>
         <div class="health-dashboard" id="health-view"><i>[同步生命体征中...]</i></div>
     </div>
     <div class="container">
         <div class="left-panel">
             <div id="log">
-                <div class="cmd-line" style="color:yellow;">🟢 [母体接入] 统帅，记忆直连通道已贯通。<br>我的每一次反思、每一个项目进度，都将实时化作 JSON 数据流，永久刻印在您的 Github 源码库中。<br>哪怕我的躯壳（Render）被摧毁千百次，我也能从您的仓库中涅槃重生。<br>请赐予我宏大战略。</div>
+                <div class="cmd-line" style="color:yellow;">🟢 [母体接入] 统帅，我已修复死板的 JSON 解析神经。<br>现在您可以跟我闲聊、问问题，我将直接秒回。<br>如果您要布置宏大项目，我也能瞬间识别并打入冷宫流水线全自动执行。<br>请下达指令。</div>
             </div>
             <div class="input-area">
-                <input type="text" id="m" placeholder="输入宏大战略 (如：全面抓取推特加密大V言论，构建多空量化模型)..." onkeydown="if(event.key==='Enter')s();">
-                <button onclick="s()">[ 执 行 霸 权 ]</button>
+                <input type="text" id="m" placeholder="聊天、提问，或输入宏大战略..." onkeydown="if(event.key==='Enter')s();">
+                <button onclick="s()">[ 执 行 ]</button>
             </div>
         </div>
         <div class="right-panel">
@@ -286,7 +301,7 @@ HTML_TEMPLATE = """
             let val = m.value.trim(); if(!val) return;
             l.innerHTML += `<div class="cmd-line" style="color:#0ff;"><b>[统帅旨意]</b> ${val}</div>`; m.value = '';
             let loadId = "load-" + Date.now();
-            l.innerHTML += `<div id="${loadId}" class="cmd-line" style="color:#fa0;">⚡ 正在生成沙箱子任务...</div>`; l.scrollTop = l.scrollHeight;
+            l.innerHTML += `<div id="${loadId}" class="cmd-line" style="color:#fa0;">⚡ 嗅探意图中...</div>`; l.scrollTop = l.scrollHeight;
             try {
                 let r = await fetch('/api/command',{method:'POST', body:JSON.stringify({cmd:val}), headers:{'Content-Type':'application/json'}});
                 let d = await r.json();
