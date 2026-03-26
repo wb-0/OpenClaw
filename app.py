@@ -1,4 +1,4 @@
-# 小龙虾 15.4 - 核心执行引擎 (app.py) - 【全自动幽灵基金 (Ghost Fund) 版】
+# 小龙虾 15.5 - 核心执行引擎 (app.py) - 【不朽幽灵基金 (Immortal Ghost) 最终版】
 
 import os
 import json
@@ -21,76 +21,84 @@ if GEMINI_API_KEY:
 if all([SUPABASE_URL, SUPABASE_KEY]):
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# --- 幽灵基金核心数据结构 (内存模拟数据库) ---
-# 阿尔法狩猎池 (幽灵雷达24小时循环扫描的目标)
+# --- 幽灵基金核心数据结构 ---
 ALPHA_POOL = [
     {"market": "美股", "ticker": "NVDA", "name": "英伟达"},
     {"market": "美股", "ticker": "TSLA", "name": "特斯拉"},
-    {"market": "美股", "ticker": "AAPL", "name": "苹果"},
     {"market": "A股", "ticker": "600519.SS", "name": "贵州茅台"},
     {"market": "A股", "ticker": "300059.SZ", "name": "东方财富"},
     {"market": "港股", "ticker": "0700.HK", "name": "腾讯控股"}
 ]
 
-# 幽灵日志库 (保存最近的50条操盘记录和深度理由)
 GHOST_LOGS = []
-# 当前持仓 (虚拟账本)
 PORTFOLIO = {}
-# 雷达当前状态 (前端展示用)
 CURRENT_SCAN_TARGET = "系统预热中..."
 
+# --- 超越设计的特性：灵魂锚点 (状态持久化) ---
+def save_system_state():
+    """将当前持仓账本备份到 Supabase，防止服务器重启丢失"""
+    if supabase:
+        try:
+            state_data = json.dumps(PORTFOLIO)
+            # 用特殊的 source 标签标记这是系统状态
+            supabase.table('claw15_memory').insert({"content": state_data, "metadata": {"source": "system_state"}}).execute()
+        except Exception as e:
+            print(f"状态备份失败: {e}")
+
+def load_system_state():
+    """系统启动时，从 Supabase 恢复最后的持仓账本"""
+    global PORTFOLIO
+    if supabase:
+        try:
+            # 查找最后一条状态记录
+            response = supabase.table('claw15_memory').select("*").eq("metadata->>source", "system_state").order("id", desc=True).limit(1).execute()
+            if response.data and len(response.data) > 0:
+                PORTFOLIO = json.loads(response.data[0]['content'])
+                add_log("SYSTEM", "系统重启", "INFO", "从 Supabase 灵魂锚点成功恢复历史持仓账本。", 0)
+        except Exception as e:
+            print(f"状态恢复失败 (可能是首次启动): {e}")
+
+# 启动时执行恢复
+load_system_state()
+
 def add_log(ticker, name, action, reason, price):
-    """记录操作日志，并同步到 Supabase 永久记忆库"""
     time_str = datetime.now().strftime("%m-%d %H:%M")
-    log_entry = {
-        "time": time_str,
-        "ticker": ticker,
-        "name": name,
-        "action": action, # BUY, SELL, HOLD
-        "price": f"{price:.2f}",
-        "reason": reason
-    }
+    log_entry = {"time": time_str, "ticker": ticker, "name": name, "action": action, "price": f"{price:.2f}", "reason": reason}
     GHOST_LOGS.insert(0, log_entry)
-    if len(GHOST_LOGS) > 50:
-        GHOST_LOGS.pop()
-        
-    # 异步写入 Supabase
+    if len(GHOST_LOGS) > 50: GHOST_LOGS.pop()
+    
     if supabase and action in ["BUY", "SELL"]:
         try:
             supabase.table('claw15_memory').insert({"content": f"【{action}】{name}({ticker}) @ {price:.2f}。理由：{reason}", "metadata": {"source": "ghost_fund"}}).execute()
-        except:
-            pass
+        except: pass
 
-# --- 核心幽灵巡逻引擎 (在后台无限循环运行) ---
+# --- 核心幽灵巡逻引擎 ---
 def ghost_scanner_loop():
     global CURRENT_SCAN_TARGET
     pool_index = 0
+    time.sleep(10) # 启动后稍等片刻再扫描
     
     while True:
         try:
-            # 1. 锁定当前扫描目标
             target = ALPHA_POOL[pool_index]
             ticker = target['ticker']
             name = target['name']
             market = target['market']
-            CURRENT_SCAN_TARGET = f"正在深度扫描：{market} - {name} ({ticker})"
+            CURRENT_SCAN_TARGET = f"幽灵正在深度扫描：{market} - {name} ({ticker})"
             
-            # 2. 抓取真实量价切片 (最近1个月日线 + 最近3天分时)
             stock = yf.Ticker(ticker)
             hist = stock.history(period="1mo")
             if hist.empty:
-                time.sleep(10)
+                pool_index = (pool_index + 1) % len(ALPHA_POOL)
                 continue
             
             current_price = hist['Close'].iloc[-1]
             ma_5 = hist['Close'].rolling(window=5).mean().iloc[-1]
             ma_20 = hist['Close'].rolling(window=20).mean().iloc[-1]
             
-            # 3. 判断是否已经持仓
             is_holding = ticker in PORTFOLIO
             holding_info = f"当前已持仓，成本价：{PORTFOLIO[ticker]['cost']}。" if is_holding else "当前未持仓。"
 
-            # 4. 召唤顶配 Gemini 进行全自动上帝视角决策
             model = genai.GenerativeModel('gemini-1.5-pro-latest')
             prompt = f"""
             你是一个完全不受人类情绪影响的【幽灵量化基金】AI主理人。
@@ -98,120 +106,79 @@ def ghost_scanner_loop():
             当前价格：{current_price:.2f}。5日均线：{ma_5:.2f}。20日均线：{ma_20:.2f}。
             持仓状态：{holding_info}
             
-            请结合{market}的交易规则，分析其近期趋势。
-            请严格按以下 JSON 格式输出你的绝对决策（不要输出其他任何字符）：
+            请严格按以下 JSON 格式输出你的绝对决策：
             {{
-                "action": "BUY" (如果未持仓且看大涨) 或 "SELL" (如果已持仓且破位/止盈) 或 "HOLD" (观望或继续持有),
-                "reason": "作为顶级操盘手，详细说明为什么做出这个买/卖/观望的决定？结合均线、量价和宏观逻辑。(字数控制在80字左右)"
+                "action": "BUY" (未持仓且强烈看涨) 或 "SELL" (已持仓且破位止损/止盈) 或 "HOLD" (观望或继续持有),
+                "reason": "作为顶级操盘手，简述理由。(字数控制在60字内)"
             }}
             """
             
             response = model.generate_content(prompt)
-            result_text = response.text.strip()
-            
-            if result_text.startswith("```json"):
-                 result_text = result_text[7:-3]
-            elif result_text.startswith("```"):
-                 result_text = result_text[3:-3]
-                 
+            result_text = response.text.strip().replace("```json", "").replace("```", "")
             decision = json.loads(result_text)
             action = decision.get('action', 'HOLD')
-            reason = decision.get('reason', 'AI 逻辑分析失败')
+            reason = decision.get('reason', 'AI 推演中')
             
-            # 5. 执行虚拟交易，更新账本
+            # 交易执行与状态备份
             if action == "BUY" and not is_holding:
                 PORTFOLIO[ticker] = {"name": name, "cost": current_price, "time": datetime.now().strftime("%m-%d %H:%M")}
                 add_log(ticker, name, "BUY", reason, current_price)
+                save_system_state() # 变动后备份账本
             elif action == "SELL" and is_holding:
                 del PORTFOLIO[ticker]
                 add_log(ticker, name, "SELL", reason, current_price)
+                save_system_state() # 变动后备份账本
             else:
-                # 即使是 HOLD，也记录到后台，但前端可以过滤掉以防刷屏，这里我们记录下来展示 AI 的思考过程
+                # 观望日志只保留在内存中，不写入数据库防止撑爆
                 add_log(ticker, name, "HOLD", reason, current_price)
 
         except Exception as e:
-            print(f"幽灵引擎扫描 {target['name']} 时异常: {e}")
+            print(f"幽灵扫描异常: {e}")
             
-        # 6. 轮换下一个标的，休息 45 秒防止被 API 封禁
         pool_index = (pool_index + 1) % len(ALPHA_POOL)
-        time.sleep(45)
+        time.sleep(60) # 每分钟扫描一次，既能及时发现异动，又不会被封禁 API
 
-# 启动幽灵引擎 (它会在后台永远运行，不依赖网页请求)
 threading.Thread(target=ghost_scanner_loop, daemon=True).start()
 
-
-# --- API 接口 (供前端大屏无刷新调用) ---
+# --- 对外接口 ---
 @app.route('/api/god_view', methods=['GET'])
 def get_god_view():
-    """上帝视角接口：一次性返回雷达状态、操作日志和持仓账本"""
-    return jsonify({
-        "current_scan": CURRENT_SCAN_TARGET,
-        "portfolio": PORTFOLIO,
-        "logs": GHOST_LOGS[:15] # 前端只展示最新15条
-    })
+    return jsonify({"current_scan": CURRENT_SCAN_TARGET, "portfolio": PORTFOLIO, "logs": GHOST_LOGS[:15]})
 
-# --- 老板专属：上帝视角监控中心 (全景全自动版) ---
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    """专为 GitHub Actions 外部起搏器设计的接口，用于防止休眠"""
+    return jsonify({"status": "alive", "time": datetime.now().strftime("%H:%M:%S")})
+
+# --- 极简黑客帝国风格前端 ---
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>👁️ 小龙虾 15.4 · 幽灵基金上帝视角</title>
+    <title>👁️ 幽灵量化基金 | 上帝视角</title>
     <style>
-        body { font-family: 'Helvetica Neue', Arial, sans-serif; background-color: #0a0a0a; color: #d1d5db; margin: 0; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 15px; margin-bottom: 20px;}
-        h1 { color: #10b981; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 0 10px rgba(16, 185, 129, 0.4);}
-        .radar-status { font-family: monospace; font-size: 16px; color: #f59e0b; background: #1f2937; padding: 8px 15px; border-radius: 4px; border: 1px solid #374151;}
-        
-        .main-container { display: flex; gap: 20px; height: calc(100vh - 100px); }
-        
-        /* 左侧：操作记录与 AI 深度理由 */
-        .logs-panel { flex: 2; background: #111827; border-radius: 8px; border: 1px solid #1f2937; display: flex; flex-direction: column; overflow: hidden;}
-        .panel-title { background: #1f2937; padding: 12px 20px; font-weight: bold; color: #f3f4f6; font-size: 16px; border-bottom: 1px solid #374151; margin: 0;}
-        .log-container { flex: 1; overflow-y: auto; padding: 15px; }
-        .log-card { background: #1f2937; border-radius: 6px; padding: 15px; margin-bottom: 15px; border-left: 4px solid #4b5563; box-shadow: 0 4px 6px rgba(0,0,0,0.3);}
-        .log-header { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px;}
-        .log-name { font-weight: bold; font-size: 16px; color: #fff;}
-        .action-BUY { color: #ef4444; font-weight: bold; font-size: 18px;} /* A股红涨绿跌习惯 */
-        .action-SELL { color: #10b981; font-weight: bold; font-size: 18px;}
-        .action-HOLD { color: #6b7280; font-weight: bold; font-size: 16px;}
-        .log-reason { color: #9ca3af; font-size: 14px; line-height: 1.6;}
-        
-        /* 右侧：当前持仓 */
-        .portfolio-panel { flex: 1; background: #111827; border-radius: 8px; border: 1px solid #1f2937; display: flex; flex-direction: column; overflow: hidden;}
-        .portfolio-container { padding: 15px; overflow-y: auto;}
-        .holding-item { display: flex; justify-content: space-between; background: #1f2937; padding: 12px; border-radius: 4px; margin-bottom: 10px; border-left: 2px solid #ef4444;}
-        .holding-name { font-weight: bold; color: #fff;}
-        .holding-cost { color: #9ca3af; font-size: 13px;}
-        
-        /* 闪烁光标 */
+        body { font-family: 'Consolas', monospace; background-color: #050505; color: #00ff00; padding: 20px; font-size: 14px;}
+        h1 { border-bottom: 1px solid #333; padding-bottom: 10px; color: #00ff00; text-shadow: 0 0 5px #00ff00;}
+        .container { display: flex; gap: 20px; }
+        .panel { flex: 1; border: 1px solid #333; padding: 15px; border-radius: 5px; background: #0a0a0a; height: 80vh; overflow-y: auto;}
+        .log-BUY { color: #ff3333; font-weight: bold; } /* 红色买入 */
+        .log-SELL { color: #33ff33; font-weight: bold; } /* 绿色卖出 */
+        .log-HOLD { color: #888; } /* 灰色观望 */
+        .log-INFO { color: #00ffff; }
+        .log-item { margin-bottom: 15px; border-bottom: 1px dashed #222; padding-bottom: 10px;}
+        .holding-item { margin-bottom: 10px; padding: 10px; border-left: 3px solid #ff3333; background: #111;}
         .blink { animation: blinker 1s linear infinite; }
         @keyframes blinker { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>👁️ 幽灵量化基金 (Ghost Fund)</h1>
-        <div class="radar-status" id="radar-status"><span class="blink">●</span> 正在连接核心服务器...</div>
-    </div>
-
-    <div class="main-container">
-        <!-- 左侧：AI 决策流 -->
-        <div class="logs-panel">
-            <h3 class="panel-title">🧠 核心决策流 & 深度博弈理由 (实时同步)</h3>
-            <div class="log-container" id="log-container">
-                <!-- 日志动态加载 -->
-                <div style="text-align:center; color:#6b7280; margin-top: 50px;">等待幽灵引擎传回第一条情报...</div>
-            </div>
-        </div>
-
-        <!-- 右侧：虚拟持仓 -->
-        <div class="portfolio-panel">
-            <h3 class="panel-title">💼 当前虚拟持仓 (Alpha 阵列)</h3>
-            <div class="portfolio-container" id="portfolio-container">
-                <!-- 持仓动态加载 -->
-            </div>
-        </div>
+    <h1>👁️ GHOST FUND 幽灵量化监控系统 (V15.5 不朽版)</h1>
+    <p style="color:#aaa" id="radar-status"><span class="blink" style="color:#00ff00">●</span> 正在连接核心集群...</p>
+    
+    <div class="container">
+        <div class="panel" id="logs"><h3>📡 实时全域博弈推演 (AI 思维流)</h3><div id="log-content"></div></div>
+        <div class="panel" id="portfolio" style="flex:0.5"><h3>💼 当前虚拟建仓 (不可摧毁账本)</h3><div id="port-content"></div></div>
     </div>
 
     <script>
@@ -220,65 +187,32 @@ HTML_TEMPLATE = """
                 const res = await fetch('/api/god_view');
                 const data = await res.json();
                 
-                // 1. 更新雷达状态
-                document.getElementById('radar-status').innerHTML = `<span class="blink" style="color:#10b981">●</span> ${data.current_scan}`;
+                document.getElementById('radar-status').innerHTML = `<span class="blink" style="color:#00ff00">●</span> [系统心跳正常] ${data.current_scan}`;
                 
-                // 2. 更新操作日志
-                const logContainer = document.getElementById('log-container');
-                logContainer.innerHTML = '';
-                data.logs.forEach(log => {
-                    const card = document.createElement('div');
-                    card.className = 'log-card';
-                    // 根据动作改变边框颜色
-                    if(log.action === 'BUY') card.style.borderLeftColor = '#ef4444';
-                    if(log.action === 'SELL') card.style.borderLeftColor = '#10b981';
-                    
-                    let actionText = log.action === 'BUY' ? '建仓买入' : (log.action === 'SELL' ? '止盈/止损卖出' : '持续观望');
-                    
-                    card.innerHTML = `
-                        <div class="log-header">
-                            <div><span class="log-name">${log.name} (${log.ticker})</span> <span style="color:#6b7280; font-size:12px; margin-left:10px">${log.time}</span></div>
-                            <div class="action-${log.action}">${actionText} @ ${log.price}</div>
-                        </div>
-                        <div class="log-reason"><strong style="color:#e5e7eb">AI 深度推演：</strong>${log.reason}</div>
-                    `;
-                    logContainer.appendChild(card);
+                let logsHTML = '';
+                data.logs.forEach(l => {
+                    logsHTML += `<div class="log-item">
+                        <span style="color:#555">[${l.time}]</span> 
+                        <strong>${l.name} (${l.ticker})</strong> 
+                        <span class="log-${l.action}">[指令: ${l.action}]</span> 现价:${l.price}<br>
+                        <span style="color:#ccc">深层逻辑: ${l.reason}</span>
+                    </div>`;
                 });
+                document.getElementById('log-content').innerHTML = logsHTML;
 
-                // 3. 更新持仓账本
-                const portContainer = document.getElementById('portfolio-container');
-                portContainer.innerHTML = '';
+                let portHTML = '';
                 const holdings = Object.keys(data.portfolio);
-                if(holdings.length === 0) {
-                    portContainer.innerHTML = '<div style="color:#6b7280; text-align:center; padding:20px;">空仓中，等待狩猎信号。</div>';
-                } else {
-                    holdings.forEach(ticker => {
-                        const item = data.portfolio[ticker];
-                        const div = document.createElement('div');
-                        div.className = 'holding-item';
-                        div.innerHTML = `
-                            <div>
-                                <div class="holding-name">${item.name}</div>
-                                <div class="holding-cost">${ticker}</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="color:#ef4444; font-weight:bold;">持仓中</div>
-                                <div class="holding-cost">建仓价: ${item.cost}</div>
-                            </div>
-                        `;
-                        portContainer.appendChild(div);
-                    });
-                }
+                if(holdings.length === 0) portHTML = '<span style="color:#555">空仓游猎中...</span>';
+                holdings.forEach(t => {
+                    const h = data.portfolio[t];
+                    portHTML += `<div class="holding-item"><strong>${h.name} (${t})</strong><br><span style="color:#888">建仓价: ${h.cost}</span></div>`;
+                });
+                document.getElementById('port-content').innerHTML = portHTML;
 
-            } catch (error) {
-                document.getElementById('radar-status').innerHTML = `<span style="color:red">● 信号中断，正在重连...</span>`;
-            }
+            } catch(e) { document.getElementById('radar-status').innerHTML = '<span style="color:red">● 信号微弱，重新尝试获取脑波...</span>'; }
         }
-
-        // 页面打开后，立刻拉取一次数据
+        setInterval(fetchGodView, 5000); // 网页开着时，每5秒刷新屏幕
         fetchGodView();
-        // 之后每 10 秒自动拉取一次，实现真正的“全自动看盘”
-        setInterval(fetchGodView, 10000);
     </script>
 </body>
 </html>
