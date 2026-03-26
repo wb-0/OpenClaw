@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (完美意图路由版)]
+# [PROJECT: OMNISCIENT EYE 18.1 - OMNI-GHOST (终极容错路由版)]
 # REPORT TO: 24-WORD MNEMONIC HOLDER
 from flask import Flask, request, jsonify, render_template_string
 import os, requests, random, threading, time, json, sqlite3, traceback, io, contextlib, base64
@@ -9,13 +9,20 @@ app = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
 
 # ==========================================
-# 🛡️ 能源与状态矩阵
+# 🛡️ 能源与状态矩阵 (超强容错嗅探)
 # ==========================================
-GEMINI_KEYS = [os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 7)]
-ALIVE_GEMINI_KEYS = [k for k in GEMINI_KEYS if k and len(k) > 10]
+# 自动嗅探环境变量中所有带 "GEMINI" 或 "API" 的潜在钥匙
+POTENTIAL_KEYS = []
+for k, v in os.environ.items():
+    if "GEMINI" in k.upper() or "API_KEY" in k.upper():
+        POTENTIAL_KEYS.append(v)
+POTENTIAL_KEYS.extend([os.environ.get(f"GEMINI_KEY_{i}") for i in range(1, 7)])
+
+# 暴力清洗：去空格，留长度大于20的有效钥匙
+ALIVE_GEMINI_KEYS = list(set([str(k).strip() for k in POTENTIAL_KEYS if k and len(str(k).strip()) > 20]))
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_TOKEN = str(os.environ.get("GITHUB_TOKEN", "")).strip()
 GITHUB_REPO = "wb-0/OpenClaw"
 MEMORY_FILE_PATH = "ghost_memory.json"
 
@@ -23,10 +30,13 @@ DB_PATH = "omni_ghost_core.db"
 START_TIME = time.time()
 
 HEALTH_MATRIX = {
-    "brain": {"status": "🟢 算力充沛", "detail": "多核轮询"},
+    "brain": {
+        "status": "🟢 算力充沛" if ALIVE_GEMINI_KEYS else "🔴 弹药库为空", 
+        "detail": f"已挂载 {len(ALIVE_GEMINI_KEYS)} 把 Gemini 密钥"
+    },
     "nerves": {"status": "🟢 突触畅通", "detail": "嗅探正常"},
     "hands": {"status": "🟢 待命", "detail": "沙箱就绪"},
-    "memory": {"status": "🟡 记忆同步中", "detail": "Git-Brain 协议"},
+    "memory": {"status": "🟢 就绪" if GITHUB_TOKEN else "🟡 未绑 Git", "detail": "Git-Brain 协议"},
     "heartbeat": {"status": "🟢 强劲起搏", "detail": "防休眠运转中"},
     "uptime": "0 小时 0 分"
 }
@@ -35,9 +45,7 @@ HEALTH_MATRIX = {
 # 💾 终极永生器官：Git-Brain 记忆同步引擎
 # ==========================================
 def push_memory_to_github():
-    if not GITHUB_TOKEN:
-        HEALTH_MATRIX["memory"]["status"] = "🔴 缺 Github Token"
-        return
+    if not GITHUB_TOKEN: return
     try:
         conn = sqlite3.connect(DB_PATH); c = conn.cursor()
         memory_dump = {"projects": [], "tasks": [], "lessons": []}
@@ -105,13 +113,14 @@ def agi_reasoning(system_prompt, user_input, require_json=False):
     full_system = f"{system_prompt}\n【最高法则】：利益最大化。\n【血泪教训】：\n{lessons}"
     if require_json: full_system += "\n必须输出纯JSON格式，绝对不要带Markdown的```json前缀。"
 
-    last_error = ""
+    last_error = "未在系统检测到任何有效的 Gemini 密钥 (0把)。" if not ALIVE_GEMINI_KEYS else ""
+    
     if ALIVE_GEMINI_KEYS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={random.choice(ALIVE_GEMINI_KEYS)}"
         try:
             res = requests.post(url, json={"contents": [{"parts": [{"text": f"{full_system}\n\n{user_input}"}]}]}, timeout=45)
             if res.status_code != 200:
-                last_error = f"Gemini API 拒绝: {res.text[:50]}"
+                last_error = f"Gemini API 拒绝: {res.text[:80]}"
                 raise ValueError(last_error)
             text = res.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
             HEALTH_MATRIX["brain"]["status"] = "🟢 算力充沛"
@@ -119,7 +128,7 @@ def agi_reasoning(system_prompt, user_input, require_json=False):
         except Exception as e: 
             last_error = str(e)
             
-    HEALTH_MATRIX["brain"]["status"] = f"🔴 算力异常 ({last_error[:15]})"
+    HEALTH_MATRIX["brain"]["status"] = f"🔴 算力异常"
     return {"error": f"算力或解析异常: {last_error}"} if require_json else f"🔴 大脑熔断: {last_error}"
 
 # ==========================================
@@ -205,21 +214,19 @@ def ping(): return "PONG"
 def handle_command():
     user_cmd = request.json.get('cmd', '')
     
-    # 🌟 修复关键点：意图嗅探器 (区分“聊天”和“建项目”)
+    # 🌟 修复关键点：意图嗅探器
     intent_prompt = "判断老板的话是普通的【聊天/提问】，还是需要拆分多步执行的【宏大项目】。如果是普通聊天/提问，直接以顶级参谋的口吻回答老板的问题。如果是宏大项目，请只回复 [PROJECT] 这9个字符。"
     intent_res = agi_reasoning("你是小龙虾意图识别中枢。", f"老板说：{user_cmd}")
     
-    if "🔴" in intent_res: # 捕捉到API密钥错误
-        return jsonify({"res": f"<b>系统致命警告：</b><br>{intent_res}<br><i style='color:#ff5555'>请检查您的 Gemini API Key 是否有效，或检查 Render 环境变量是否正确配置。</i>"})
+    if "🔴" in intent_res: 
+        return jsonify({"res": f"<b>系统致命警告：</b><br>{intent_res}<br><i style='color:#ff5555'>请检查您的 API Key 是否有效，或检查右上角仪表盘钥匙是否加载成功。</i>"})
     
     if "[PROJECT]" not in intent_res.upper():
-        # 直接回答，不建项目
         return jsonify({"res": f"🟢 <b>[小龙虾直击]：</b><br>{intent_res.replace(chr(10), '<br>')}"})
     
-    # 如果是宏大项目，才进入严格的 JSON 拆解模式
     plan = agi_reasoning("你是战略拆解师。", f"老板战略：{user_cmd}。拆分为3个执行子任务。返回JSON：{{\"project_title\": \"名\", \"tasks\": [\"任务1\", \"任务2\"]}}", require_json=True)
     if "error" in plan: 
-        return jsonify({"res": f"🔴 战略拆解失败，JSON解析崩溃或算力异常。底层报错：{plan.get('error')}"})
+        return jsonify({"res": f"🔴 战略拆解失败。底层报错：{plan.get('error')}"})
     
     proj_id = f"PJ_{datetime.now().strftime('%m%d_%H%M%S')}"
     conn = sqlite3.connect(DB_PATH); c = conn.cursor()
@@ -317,7 +324,7 @@ HTML_TEMPLATE = """
                 let r = await fetch('/api/matrix'); let d = await r.json();
                 
                 let h_html = `
-                    <div class="health-item">🧠 算力<div class="health-val">${d.health.brain.status}</div></div>
+                    <div class="health-item">🧠 算力<div class="health-val">${d.health.brain.status}</div><div style="color:#888; font-size:0.8em; margin-top:3px">${d.health.brain.detail}</div></div>
                     <div class="health-item">🦾 沙箱<div class="health-val">${d.health.hands.status}</div></div>
                     <div class="health-item" style="border: 1px solid #ff0; padding: 2px 10px; background: #330;">💾 记忆<div class="health-val" style="color:#ff0">${d.health.memory.status}</div></div>
                     <div class="health-item">🫀 心跳<div class="health-val">${d.health.heartbeat.status}</div></div>
